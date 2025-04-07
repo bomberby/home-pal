@@ -1,0 +1,8 @@
+# Code Quality Rules
+- before attempting to apply changes to the code, read to file to verify if this change is needed
+- The user is able to answer technical questions about frontend, backend and what is desired, ask the user for clarification if you are unsure in the best direction
+
+
+# Enviournment information
+- This is a python server with roo, frontend is plain http with JS and CSS connecting to the endpoints defined in routes.py
+- the server is running and listening at http://127.0.0.1:5000/ , you can open this URL to see the page's status

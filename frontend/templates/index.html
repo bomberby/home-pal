@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Server Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chartjs-plugin-annotation.min.js') }}"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard</h1>
+        
+        <!-- Tasks Section -->
+        <div class="card tasks-card">
+            <h2>Tasks</h2>
+            <ul id="tasks-list"></ul>
+            <input type="text" id="new-task" placeholder="Add a new task...">
+            <button onclick="addTask()">Add Task</button>
+            <div id="success-message">Task added successfully!</div>
+        </div>
+
+        <!-- Weather Section -->
+        <div class="card weather-card">
+            <h2>Weather</h2>
+            <div class="wrapper">
+                <div class="container">
+                    <canvas id="weather-chart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Train Schedule Section -->
+        <div class="card train-card">
+            <h2>Train Schedule</h2>
+            <ul id="train-schedule"></ul>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
