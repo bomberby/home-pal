@@ -170,9 +170,44 @@ function fetchTrainSchedule() {
     .catch(error => console.error('Error fetching train schedule:', error));
 }
 
-// Initial load
+// Function to read out incomplete tasks
+function readIncompleteTasks() {
+  const taskList = document.getElementById('tasks-list');
+  const incompleteTasks = Array.from(taskList.children)
+    .filter(li => !li.classList.contains('completed'))
+    .map(li => li.textContent.split(' - ')[0]);
+
+  if (incompleteTasks.length === 0) {
+    alert('No incomplete tasks.');
+    return;
+  }
+
+  utterance = new SpeechSynthesisUtterance(incompleteTasks.join('. '));
+  utterance.voice = speechSynthesis.getVoices()[2];
+  speechSynthesis.speak(utterance);
+}
+
+const allVoicesObtained = new Promise(function(resolve, reject) {
+  let voices = window.speechSynthesis.getVoices();
+  if (voices.length !== 0) {
+    resolve(voices);
+  } else {
+    window.speechSynthesis.addEventListener("voiceschanged", function() {
+      voices = window.speechSynthesis.getVoices();
+      resolve(voices);
+    });
+  }
+});
+
+// Add button to trigger text-to-speech
 window.onload = function() {
   fetchTasks();
   fetchWeather();
-  fetchTrainSchedule();
+  // fetchTrainSchedule();
+
+  const readButton = document.createElement('button');
+  readButton.textContent = 'Read Incomplete Tasks';
+  readButton.style.marginTop = '10px';
+  readButton.addEventListener('click', readIncompleteTasks);
+  document.querySelector('.tasks-card').appendChild(readButton);
 };
