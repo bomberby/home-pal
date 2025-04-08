@@ -4,7 +4,11 @@ import requests
 
 def get_cached_or_fetch(city):
     try:
-        return WeatherData.get(WeatherData.city == city)
+        weather_data = WeatherData.get(WeatherData.city == city)
+        if (datetime.now() - weather_data.last_updated).total_seconds() > 3600:
+            return fetch_weather_data(city)
+        else:
+            return weather_data
     except WeatherData.DoesNotExist:
         return fetch_weather_data(city)
 
@@ -27,7 +31,7 @@ def fetch_weather_data(city):
             weather_data.longitude = longitude
             weather_data.timezone = timezone
             weather_data.hourly_temperatures = hourly_temperatures
-            weather_data.last_updated = datetime.datetime.now()
+            weather_data.last_updated = datetime.now()
             weather_data.first_time = first_time
             weather_data.save()
             return weather_data
