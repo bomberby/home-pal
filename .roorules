@@ -1,5 +1,6 @@
 # Code Quality Rules
-- before attempting to apply changes to the code, read to file to verify if this change is needed
+- only make a change if it's needed, if the file already have that same code somewhere else, the change is not needed
+- try to maintain the existing code as much as possible, and extend the functionality based on what is already there
 - The user is able to answer technical questions about frontend, backend and what is desired, ask the user for clarification if you are unsure in the best direction
 
 

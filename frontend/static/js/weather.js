@@ -3,6 +3,7 @@ function fetchWeather() {
   fetch('/weather')
     .then(response => response.json())
     .then(weather => {
+      document.getElementById('weather-chart').outerHTML = '<canvas id="weather-chart" height="300"></canvas>'
       const ctx = document.getElementById('weather-chart').getContext('2d');
       const hourlyTemperatures = JSON.parse(weather.hourly_temperatures);
       const first_time = Date.parse(weather.first_time);
@@ -27,10 +28,9 @@ function fetchWeather() {
         borderColor: 'rgba(255, 0, 0, 0.36)',
         borderWidth: 3
       });
-      console.log(annotations)
       
       const chartContainer = document.querySelector('.weather-card .container');
-      chartContainer.scrollLeft += now_index * 12;
+      chartContainer.scrollLeft = now_index * 12;
       
       new Chart(ctx, {
         data: {
@@ -62,9 +62,9 @@ function fetchWeather() {
     .catch(error => console.error('Error fetching weather:', error));
 }
 
-
 function initiateWeather() {
   fetchWeather();
+  setInterval(fetchWeather, 300000); // Refresh every 5 minutes (300000 milliseconds)
 }
 
-window.window.addEventListener("load",initiateWeather);
+window.addEventListener("load", initiateWeather);
