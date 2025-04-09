@@ -131,6 +131,10 @@ button:hover {
     position: relative;
 }
 
+.weather-card .updated{
+    font-size: 60%;
+}
+
 .weather-card canvas{
     position: absolute;
     left: 0;

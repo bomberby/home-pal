@@ -32,6 +32,7 @@ function fetchWeather() {
       
       const chartContainer = document.querySelector('.weather-card .container');
       chartContainer.scrollLeft = now_index * 12;
+      document.querySelector('.weather-card .updated').innerText = "Updated at " + weather.last_updated;
       
       new Chart(ctx, {
         data: {
