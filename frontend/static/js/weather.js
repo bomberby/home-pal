@@ -6,6 +6,7 @@ function fetchWeather() {
       document.getElementById('weather-chart').outerHTML = '<canvas id="weather-chart" height="300"></canvas>'
       const ctx = document.getElementById('weather-chart').getContext('2d');
       const hourlyTemperatures = JSON.parse(weather.hourly_temperatures);
+      const hourlyPrecipitation = JSON.parse(weather.hourly_precipitation);
       const first_time = Date.parse(weather.first_time);
       const labels = Array.from({ length: hourlyTemperatures.length }, (_, i) => {
         const time = new Date(first_time + i * 60 * 60 * 1000);
@@ -35,13 +36,22 @@ function fetchWeather() {
       new Chart(ctx, {
         data: {
           labels: labels,
-          datasets: [{
-            label: 'Temperature (°C)',
-            type: 'line',
-            data: hourlyTemperatures,
-            borderColor: 'rgba(75, 192, 192, 1)',
-            fill: false
-          }]
+          datasets: [
+            {
+              label: 'Temperature (°C)',
+              data: hourlyTemperatures,
+              borderColor: 'rgba(75, 192, 192, 1)',
+              fill: false,
+              type: 'line'
+            },
+            {
+              label: 'Precipitation (mm)',
+              data: hourlyPrecipitation,
+              backgroundColor: 'rgb(12, 114, 182)',
+              fill: false,
+              type: 'bar'
+            }
+          ]
         },
         options: {
           responsive: false,

@@ -3,7 +3,10 @@
 - try to maintain the existing code as much as possible, and extend the functionality based on what is already there
 - The user is able to answer technical questions about frontend, backend and what is desired, ask the user for clarification if you are unsure in the best direction
 
+# Coding rules
+- After writing a change to a file, read the file once again to get the most recent version of it
+- if you receive an error about "No sufficiently similar match" read the file before attempting the change again.
 
 # Enviournment information
-- This is a python server with roo, frontend is plain http with JS and CSS connecting to the endpoints defined in routes.py
+- This is a python server with flask and peewee, frontend is plain http with JS and CSS connecting to the endpoints defined in routes.py
 - the server is running and listening at http://127.0.0.1:5000/ , you can open this URL to see the page's status

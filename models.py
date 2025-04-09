@@ -19,6 +19,7 @@ class WeatherData(BaseModel):
     longitude = FloatField()
     timezone = CharField()
     hourly_temperatures = TextField()
+    hourly_precipitation = TextField()
     first_time = DateTimeField()
     # temperature = FloatField()
     # condition = CharField()
