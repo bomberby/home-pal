@@ -11,15 +11,25 @@
     <div class="container">
         <h1>Dashboard</h1>
         
-        <!-- Tasks Section -->
-        <div class="card tasks-card">
-            <h2>Tasks</h2>
+        <!-- Main Content Container -->
+        <div class="main-content">
+            <!-- Tasks Section -->
+            <div class="left-section card tasks-card">
+                <h2>Tasks</h2>
             <ul id="tasks-list"></ul>
             <input type="text" id="new-task" placeholder="Add a new task...">
             <button onclick="addTask()">Add Task</button>
             <div id="success-message">Task added successfully!</div>
         </div>
 
+        <!-- Right Section - Shopping List -->
+        <div class="right-section card shopping-list-card">
+            <h2>Shopping List</h2>
+            <ul id="shopping-list"></ul>
+            <input type="text" id="shopping-input" placeholder="Add an item...">
+            <button onclick="addShoppingItem()">Add Item</button>
+        </div>
+   
         <!-- Weather Section -->
         <div class="card weather-card">
             <h2>Weather</h2>
@@ -37,11 +47,12 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/chartjs-plugin-annotation.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dist/chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dist/chartjs-plugin-annotation.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/weather.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tasks.js') }}"></script>
     <script src="{{ url_for('static', filename='js/train-schedule.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/shopping-list.js') }}"></script>
 </body>
 </html>

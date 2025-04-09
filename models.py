@@ -21,7 +21,6 @@ class WeatherData(BaseModel):
     hourly_temperatures = TextField()
     hourly_precipitation = TextField()
     first_time = DateTimeField()
-    # temperature = FloatField()
     # condition = CharField()
     last_updated = DateTimeField(default=datetime.datetime.now)
 
