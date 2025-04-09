@@ -30,7 +30,12 @@ class TrainSchedule(BaseModel):
     departure_time = DateTimeField()
     status = CharField()
 
+class ShoppingListItem(BaseModel):
+    item_name = CharField()
+    quantity = IntegerField(default=1)
+    purchased = BooleanField(default=False)
+
 # Create tables if they don't exist
 database.connect()
 # database.drop_tables([WeatherData])
-database.create_tables([Task, WeatherData, TrainSchedule])
+database.create_tables([Task, WeatherData, TrainSchedule, ShoppingListItem])

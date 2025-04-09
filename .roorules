@@ -2,10 +2,12 @@
 - only make a change if it's needed, if the file already have that same code somewhere else, the change is not needed
 - try to maintain the existing code as much as possible, and extend the functionality based on what is already there
 - The user is able to answer technical questions about frontend, backend and what is desired, ask the user for clarification if you are unsure in the best direction
+- before making significant changes to existing features, ask for permission from the user, don't assume you know better than everyone else, ask for permissions and focus on the tasks assigned to you by doing incremental modifications.
 
 # Coding rules
 - After writing a change to a file, read the file once again to get the most recent version of it
 - if you receive an error about "No sufficiently similar match" read the file before attempting the change again.
+- Make incremental changes to files, don't overwrite the entire file, add your change to the existing file
 
 # Enviournment information
 - This is a python server with flask and peewee, frontend is plain http with JS and CSS connecting to the endpoints defined in routes.py

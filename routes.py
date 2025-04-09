@@ -1,6 +1,6 @@
 from flask import jsonify, request, render_template
 from playhouse.shortcuts import model_to_dict, dict_to_model
-from models import Task, WeatherData, TrainSchedule
+from models import Task, WeatherData, TrainSchedule, ShoppingListItem
 from datetime import datetime
 
 from weather_service import get_cached_or_fetch
@@ -51,6 +51,43 @@ def init_routes(app):
             return jsonify({'error': 'Task not found'}), 404
     
     from config import Config
+    
+    @app.route('/shopping-list-items', methods=['POST'])
+    def add_shopping_list_item():
+        data = request.json
+        item = ShoppingListItem.create(
+            item_name=data['item_name'],
+            quantity=data.get('quantity', 1),
+            purchased=data.get('purchased', False)
+        )
+        return jsonify(model_to_dict(item))
+    
+    @app.route('/shopping-list-items', methods=['GET'])
+    def get_shopping_list_items():
+        items = [model_to_dict(item) for item in ShoppingListItem.select()]
+        return jsonify(items)
+    
+    @app.route('/shopping-list-items/<int:item_id>', methods=['PUT'])
+    def update_shopping_list_item(item_id):
+        try:
+            item = ShoppingListItem.get(ShoppingListItem.id == item_id)
+            data = request.json
+            item.item_name = data.get('item_name', item.item_name)
+            item.quantity = data.get('quantity', item.quantity)
+            item.purchased = data.get('purchased', item.purchased)
+            item.save()
+            return jsonify(model_to_dict(item))
+        except ShoppingListItem.DoesNotExist:
+            return jsonify({'error': 'Item not found'}), 404
+    
+    @app.route('/shopping-list-items/<int:item_id>', methods=['DELETE'])
+    def delete_shopping_list_item(item_id):
+        try:
+            item = ShoppingListItem.get(ShoppingListItem.id == item_id)
+            item.delete_instance()
+            return jsonify({'message': 'Item deleted successfully'}), 200
+        except ShoppingListItem.DoesNotExist:
+            return jsonify({'error': 'Item not found'}), 404
     
     @app.route('/weather', methods=['GET'])
     def get_weather():

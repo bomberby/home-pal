@@ -74,7 +74,7 @@ button:hover {
 /* Shopping List Styles */
 .main-content {
     display: grid;
-    grid-template-columns: 6fr 4fr;
+    grid-template-columns: 5fr 4fr;
     gap: 20px;
     margin-bottom: 20px;
 }
