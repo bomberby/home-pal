@@ -4,6 +4,9 @@ from models import Task, WeatherData, TrainSchedule, ShoppingListItem
 from datetime import datetime
 
 from weather_service import get_cached_or_fetch
+from config import Config
+
+from google_calender import google_calendar
 
 def init_routes(app):
     # homepage
@@ -49,8 +52,6 @@ def init_routes(app):
             return jsonify({'message': 'Task deleted successfully'}), 200
         except Task.DoesNotExist:
             return jsonify({'error': 'Task not found'}), 404
-    
-    from config import Config
     
     @app.route('/shopping-list-items', methods=['POST'])
     def add_shopping_list_item():
@@ -105,5 +106,5 @@ def init_routes(app):
             train_data = TrainSchedule.get(TrainSchedule.train_id == 'TBD')
             return jsonify(model_to_dict(train_data))
         except TrainSchedule.DoesNotExist:
-            return jsonify({'error': 'Weather data not found'}), 404
-    # Similar routes for train schedules...
+    
+    app.register_blueprint(google_calendar)

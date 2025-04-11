@@ -141,3 +141,26 @@ button:hover {
     top: 0;
     width: 3000px;
 }
+
+.calendar-card {
+    margin-top: 20px;
+    text-align: center;
+}
+
+#calendar-events {
+    list-style-type: none;
+    padding: 0;
+    margin-top: 15px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.calendar-event {
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
