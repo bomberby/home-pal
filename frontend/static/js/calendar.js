@@ -2,12 +2,18 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     const loginButton = document.getElementById('login-button');
+    const logoutButton = document.getElementById('logout-button');
     const calendarEventsList = document.getElementById('calendar-events');
 
     loginButton.addEventListener('click', handleLogin);
+    logoutButton.addEventListener('click', handleLogout);
 
     function handleLogin() {
-        window.location.href = '/login';
+        window.location.href = '/oauth/login';
+    }
+    
+    function handleLogout() {
+        window.location.href = '/oauth/logout';
     }
 
     async function fetchCalendarEvents() {

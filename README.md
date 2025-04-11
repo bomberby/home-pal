@@ -19,7 +19,7 @@
 3. Navigate to 'APIs & Services' > 'Credentials'.
 4. Click on 'Create Credentials' and select 'OAuth client ID'.
 5. Configure the consent screen if prompted.
-6. Set the application type to 'Web application', add authorized redirect URIs (e.g., http://127.0.0.1:5000/oauth2callback), and create the credentials.
+6. Set the application type to 'Web application', add authorized redirect URIs (e.g., http://127.0.0.1:5000/oauth/oauth2callback), and create the credentials.
 7. Download the JSON file containing your client ID and secret.
 8. Place this JSON file in your project directory and put it in `env/secrets/client_secret.json`
 9. Add the users to the test users list.
