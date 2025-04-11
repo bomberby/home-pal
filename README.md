@@ -10,8 +10,6 @@
 - recuring shopping list
 - weather location be changable
 - add tests
-- on the weather day separator, add date
-
 
 
 # Setting up google calender:

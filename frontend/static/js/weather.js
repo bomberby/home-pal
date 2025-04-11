@@ -13,14 +13,25 @@ function fetchWeather() {
         return `${time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
       });
       const now_index = (Date.now() - first_time) / 3600 / 1000;
-      annotations = labels.map((label, index) => ({
-        type: 'line',
-        mode: 'vertical',
-        scaleID: 'x',
-        value: index,
-        borderColor: label && label.includes('00:00') ? 'rgba(175, 150, 150, 0.36)' : 'transparent',
-        borderWidth: label && label.includes('00:00') ? 3 : 0
-      })).filter(annotation => annotation.borderColor !== 'transparent');
+      annotations = labels.map((label, index) => {
+        const time = new Date(first_time + index * 60 * 60 * 1000);
+        return {
+          type: 'line',
+          mode: 'vertical',
+          scaleID: 'x',
+          value: index,
+          borderColor: label.includes('00:00') ? 'rgba(175, 150, 150, 0.36)' : 'transparent',
+          borderWidth: label.includes('00:00') ? 3 : 0,
+          label: {
+            display: label.includes('00:00'),
+            position: '0%',
+            // rotation: 90,
+            backgroundColor: 'rgba(207, 207, 207, 0.36)',
+            color: 'rgba(56, 55, 55, 0.36)',
+            content: time.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })
+          }
+        };
+      }).filter(annotation => annotation.borderColor !== 'transparent');
       annotations.push({
         type: 'line',
         mode: 'vertical',
@@ -50,7 +61,8 @@ function fetchWeather() {
               data: hourlyPrecipitation,
               backgroundColor: 'rgb(12, 114, 182)',
               fill: false,
-              type: 'bar'
+              type: 'bar',
+              yAxisID: 'y2'
             }
           ]
         },
@@ -60,6 +72,9 @@ function fetchWeather() {
           scales: {
             y: {
               beginAtZero: false
+            },
+            y2: {
+              display: false
             }
           },
           plugins: {
