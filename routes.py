@@ -2,7 +2,8 @@ from flask import jsonify, request, render_template
 from playhouse.shortcuts import model_to_dict, dict_to_model
 from models import Task, WeatherData, TrainSchedule, ShoppingListItem
 from datetime import datetime
-
+import urllib.parse
+import json
 from weather_service import get_cached_or_fetch
 from config import Config
 
@@ -93,12 +94,17 @@ def init_routes(app):
     @app.route('/weather', methods=['GET'])
     def get_weather():
         try:
-            location = Config.WEATHER_LOCATION
-            weather_data = get_cached_or_fetch(location)
-            return jsonify(model_to_dict(weather_data))
+            locations = request.cookies.get('weather_locations')
+            if locations:
+                locations = json.loads(urllib.parse.unquote(locations))
+            else:
+                locations = [Config.WEATHER_LOCATION]
+
+            weather_data_list = get_cached_or_fetch(locations)
+            return jsonify(weather_data_list)
         except WeatherData.DoesNotExist:
             return jsonify({'error': 'Task not found'}), 404
-        
+            
     @app.route('/train-schedule', methods=['GET'])
     def get_train_schedule():
         location = Config.WEATHER_LOCATION

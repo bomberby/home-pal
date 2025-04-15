@@ -14,7 +14,7 @@ function fetchTasks() {
 
         // Add delete button
         const deleteButton = document.createElement('button');
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = '🗑️';
         deleteButton.style.marginLeft = '10px';
         deleteButton.addEventListener('click', () => deleteTask(task.id, li));
         li.appendChild(deleteButton);
@@ -124,10 +124,16 @@ function initiateTasks() {
 
     // Add button to trigger text-to-speech
     const readButton = document.createElement('button');
-    readButton.textContent = 'Read Incomplete Tasks';
+    readButton.textContent = '📢';
     readButton.style.marginTop = '10px';
     readButton.addEventListener('click', readIncompleteTasks);
     document.querySelector('.tasks-card').appendChild(readButton);
 }
-
+// Add event listener for enter key on the task input field
+document.getElementById('new-task').addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addTask();
+    }
+});
 window.window.addEventListener("load",initiateTasks);

@@ -18,7 +18,7 @@
                 <h2>Tasks</h2>
             <ul id="tasks-list"></ul>
             <input type="text" id="new-task" placeholder="Add a new task...">
-            <button onclick="addTask()">Add Task</button>
+            <button onclick="addTask()">+</button>
             <div id="success-message">Task added successfully!</div>
         </div>
 
@@ -27,27 +27,38 @@
             <h2>Shopping List</h2>
             <ul id="shopping-list"></ul>
             <input type="text" id="shopping-input" placeholder="Add an item...">
-            <button onclick="addShoppingItem()">Add Item</button>
+            <button onclick="addShoppingItem()">+</button>
         </div>
-
-        <!-- Google Calendar Section -->
-        <div class="card calendar-card">
-            <h2>Google Calendar</h2>
-            <button id="logout-button">Logout</button>
-            <button id="login-button">Login with Google</button>
-            <ul id="calendar-events"></ul>
-        </div>
-    
 
         <!-- Weather Section -->
         <div class="card weather-card">
             <h2>Weather</h2>
+            <button onclick="openWeatherSettings()">⚙️</button>
             <div class="wrapper">
                 <div class="container">
                     <canvas id="weather-chart" height="300"></canvas>
                 </div>
             </div>
             <div class="updated"> </div>
+        
+            <!-- Weather Settings Modal -->
+            <div id="weather-settings-modal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeWeatherSettings()">&times;</span>
+                    <h3>Weather Settings</h3>
+                    <div id="weather-location-list"></div>
+                    <input type="text" id="weather-location" placeholder="Enter your location...">
+                    <button onclick="updateWeatherLocation()">+</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Google Calendar Section -->
+        <div class="card calendar-card">
+            <h2>Google Calendar</h2>
+            <button id="logout-button">🔒</button>
+            <button id="login-button">🔑</button>
+            <ul id="calendar-events"></ul>
         </div>
 
         <!-- Train Schedule Section -->

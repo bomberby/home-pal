@@ -1,19 +1,24 @@
 from datetime import datetime
 from models import WeatherData
+from playhouse.shortcuts import model_to_dict
 import requests
 
-def get_cached_or_fetch(city):
-    try:
-        weather_data = WeatherData.get(WeatherData.city == city)
-        if (datetime.now() - weather_data.last_updated).total_seconds() > 3600:
-            return fetch_weather_data(city)
-        else:
-            return weather_data
-    except WeatherData.DoesNotExist:
-        return fetch_weather_data(city)
+def get_cached_or_fetch(cities):
+    weather_data_dict = {}
+    for city in cities:
+        try:
+            weather_data = WeatherData.get(WeatherData.city == city)
+            if (datetime.now() - weather_data.last_updated).total_seconds() > 3600:
+                weather_data_dict[city] = model_to_dict(fetch_weather_data(city))
+            else:
+                weather_data_dict[city] = model_to_dict(weather_data)
+        except WeatherData.DoesNotExist:
+            weather_data_dict[city] = model_to_dict(fetch_weather_data(city))
+    return weather_data_dict
 
 def fetch_weather_data(city):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude=35.7203484&longitude=139.7831018&hourly=temperature_2m,precipitation&timezone=auto"
+    geo = geo_from_city_name(city)
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={geo['latitude']}&longitude={geo['longitude']}&hourly=temperature_2m,precipitation&timezone=auto"
     
     response = requests.get(url)
     if response.status_code == 200:
@@ -38,10 +43,33 @@ def fetch_weather_data(city):
             weather_data.save()
             return weather_data
         except WeatherData.DoesNotExist:
-            return WeatherData.create(city=city, latitude=latitude, longitude=longitude, timezone=timezone, 
-                                      hourly_temperatures=hourly_temperatures, hourly_precipitation=hourly_precipitation, 
+            return WeatherData.create(city=city, latitude=latitude, longitude=longitude, timezone=timezone,
+                                      hourly_temperatures=hourly_temperatures, hourly_precipitation=hourly_precipitation,
                                       first_time=first_time)
         
     else:
         print("Failed to fetch weather data")
         return None
+
+def geo_from_city_name(city):
+    geo = {}
+    try:
+        weather_data = WeatherData.get(WeatherData.city == city)
+        geo['latitude'] = weather_data.latitude
+        geo['longitude'] = weather_data.longitude
+        return geo
+    except WeatherData.DoesNotExist:
+        pass
+
+    # GEO FROM ONLINE LOOKUP
+
+
+    # GEO from fallbacks
+    if city == 'Ome':
+        geo['latitude'] = 35.7902208
+        geo['longitude'] = 139.258213
+
+    # Tokyo
+    geo['latitude'] = geo.get('latitude', 35.7203484)
+    geo['longitude'] = geo.get('longitude', 139.7831018)
+    return geo
