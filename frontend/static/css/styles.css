@@ -43,6 +43,9 @@ h2 {
     background-color: #f9f9f9;
     margin-bottom: 5px;
     border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 input[type="text"] {
@@ -51,7 +54,7 @@ input[type="text"] {
     margin-right: 10px;
 }
 
-#tasks-list li.completed::after {
+#tasks-list li.completed span::after {
     content: '✓';
     color: green;
     font-size: 16px;
@@ -129,10 +132,49 @@ button:hover {
     width: 3000px;
 }
 
+
+#weather-location-list {
+    list-style-type: none;
+    padding: 0;
+    margin-top: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#weather-location-list li {
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 .calendar-card {
     margin-top: 20px;
-    text-align: center;
+    /* text-align: center; */
 }
+
+
+#calendar-events {
+    list-style-type: none;
+    padding: 0;
+    margin-top: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.calendar-event {
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 /* Modal Styles */
 .modal {
   display: none; /* Hidden by default */
@@ -162,22 +204,4 @@ button:hover {
   font-size: 32px;
   font-weight: bold;
   cursor: pointer;
-}
-
-#calendar-events {
-    list-style-type: none;
-    padding: 0;
-    margin-top: 20px;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.calendar-event {
-    background-color: #f9f9f9;
-    border-radius: 4px;
-    padding: 8px;
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
 }

@@ -8,9 +8,7 @@
 - add ability to set task due, and only display tasks that are due
 - implement the train schedule
 - recuring shopping list
-- weather location be changable
 - add tests
-
 
 # Setting up google calender:
 "Please follow these steps to set up Google Calendar API credentials:

@@ -22,7 +22,7 @@
               li.className = 'shopping-item';
               li.innerHTML = `
                   <span class="item">${data.item_name}</span>
-                  <button class="shopping-button" onclick="deleteShoppingItem(${data.id})">🗑️</button>
+                  <button class="shopping-button" onclick="deleteShoppingItem(${data.id})">x</button>
               `;
               list.appendChild(li);
           })
@@ -54,7 +54,7 @@
                   li.dataset.id = item.id;
                   li.innerHTML = `
                       <span class="item">${item.item_name}</span>
-                      <button class="shopping-button" onclick="deleteShoppingItem(this)">🗑️</button>
+                      <button class="shopping-button" onclick="deleteShoppingItem(this)">x</button>
                   `;
                   document.getElementById('shopping-list').appendChild(li);
               });

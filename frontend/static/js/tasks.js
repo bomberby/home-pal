@@ -7,14 +7,14 @@ function fetchTasks() {
       taskList.innerHTML = '';
       tasks.forEach(task => {
         const li = document.createElement('li');
-        li.textContent = `${task.task_name} - Due: ${new Date(task.due_date).toLocaleString()}`;
+        li.innerHTML = `<span>${task.task_name} - Due: ${new Date(task.due_date).toLocaleString()}</span>`;
         if (task.completed) {
           li.classList.add('completed');
         }
 
         // Add delete button
         const deleteButton = document.createElement('button');
-        deleteButton.textContent = '🗑️';
+        deleteButton.textContent = 'x';
         deleteButton.style.marginLeft = '10px';
         deleteButton.addEventListener('click', () => deleteTask(task.id, li));
         li.appendChild(deleteButton);

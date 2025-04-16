@@ -5,7 +5,7 @@ import pickle
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import requests
-
+from cache import cache
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 REDIRECT_URI = f'http://127.0.0.1:5000/oauth/oauth2callback'
@@ -49,8 +49,8 @@ def logout():
         headers = {'content-type': 'application/x-www-form-urlencoded'})
     return redirect(url_for('index'))
 
-
 @google_calendar.route('/calendar/events')
+@cache.cached(timeout=60 * 60)  # Cache the result for 1 hour
 def get_calendar_events():
     # Load credentials from the session if available, otherwise load from file
     credentials = credentials_from_storage()
@@ -59,13 +59,33 @@ def get_calendar_events():
 
     # Call the Calendar API with time range filter
     today = datetime.utcnow().date()
-    one_year_from_now = today + timedelta(days=365)
+    one_year_from_now = today + timedelta(days=362)
     
-    events_result = service.events().list(calendarId='primary', maxResults=10, singleEvents=True,
-                                        orderBy='startTime',
-                                        timeMin=today.isoformat() + 'T00:00:00Z',
-                                        timeMax=one_year_from_now.isoformat() + 'T23:59:59Z').execute()
-    events = events_result.get('items', [])
+    # Fetch a list of all calendars
+    calendar_list = service.calendarList().list().execute()
+    calendars = calendar_list.get('items', [])
+    
+    all_events = []
+    calendar_indices = {calendar['id']: index for index, calendar in enumerate(calendars)}
+    
+    for calendar in calendars:
+        events_result = service.events().list(calendarId=calendar['id'], maxResults=10, singleEvents=True,
+                                                orderBy='startTime',
+                                                timeMin=today.isoformat() + 'T00:00:00Z',
+                                                timeMax=one_year_from_now.isoformat() + 'T23:59:59Z').execute()
+        events = events_result.get('items', [])
+        for event in events:
+            event['calendar_index'] = calendar_indices[calendar['id']]
+            all_events.append(event)
+    
+    # Filter out events without a summary field
+    filtered_events = [event for event in all_events if 'summary' in event]
+    
+    # Sort events by start time
+    # Ensure safe access to 'dateTime' and 'date'
+    sorted_events = sorted(filtered_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
+    
+    events = sorted_events
     # Write the credentials in case the refresh token changed
     with open('token.pickle', 'wb') as token:
         pickle.dump(credentials, token)
