@@ -6,6 +6,8 @@ import urllib.parse
 import json
 from weather_service import get_cached_or_fetch
 from config import Config
+from train_scrape_service import fetch_timetables
+from cache import cache
 
 from google_calender import google_calendar
 
@@ -104,13 +106,12 @@ def init_routes(app):
             return jsonify(weather_data_list)
         except WeatherData.DoesNotExist:
             return jsonify({'error': 'Task not found'}), 404
-            
+
     @app.route('/train-schedule', methods=['GET'])
+    @cache.cached(timeout=60 * 60)  # Cache the result for 1 hour
     def get_train_schedule():
-        location = Config.WEATHER_LOCATION
-        try:
-            train_data = TrainSchedule.get(TrainSchedule.train_id == 'TBD')
-            return jsonify(model_to_dict(train_data))
-        except TrainSchedule.DoesNotExist:
-    
+        base_url = Config.TRAIN_STATION_URL
+        res = fetch_timetables(base_url)
+        return jsonify(res)
+        
     app.register_blueprint(google_calendar)

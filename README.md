@@ -6,7 +6,7 @@
 # Functions to add:
 - Recycling days
 - add ability to set task due, and only display tasks that are due
-- implement the train schedule
+- implement the train alerts
 - recuring shopping list
 - add tests
 

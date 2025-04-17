@@ -1,178 +1,159 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    font-family: Arial, sans-serif;
-    background-color: #f5f5f5;
-    padding: 20px;
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+  padding: 20px;
 }
 
 .container {
-    max-width: 1200px;
-    margin: 0 auto;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .card {
-    background-color: white;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 h2 {
-    color: #333;
-    margin-bottom: 15px;
+  color: #333;
+  margin-bottom: 15px;
 }
 
 #success-message {
-    display: none;
-    color: green;
+  display: none;
+  color: green;
 }
 
 #tasks-list {
-    list-style-type: none;
-    margin-bottom: 15px;
+  list-style-type: none;
+  margin-bottom: 15px;
 }
 
 #tasks-list li {
-    padding: 8px;
-    background-color: #f9f9f9;
-    margin-bottom: 5px;
-    border-radius: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  padding: 8px;
+  background-color: #f9f9f9;
+  margin-bottom: 5px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 input[type="text"] {
-    padding: 8px;
-    width: 200px;
-    margin-right: 10px;
+  padding: 8px;
+  width: 200px;
+  margin-right: 10px;
 }
 
 #tasks-list li.completed span::after {
-    content: '✓';
-    color: green;
-    font-size: 16px;
-    margin-left: 5px;
+  content: '✓';
+  color: green;
+  font-size: 16px;
+  margin-left: 5px;
 }
 
 button {
-    padding: 6px 10px;  
-    background-color: #8baccf;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
+  padding: 6px 10px;  
+  background-color: #8baccf;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 button:hover {
-    background-color: #336895;
+  background-color: #336895;
 }
 
 /* Shopping List Styles */
 .main-content {
-    display: grid;
-    grid-template-columns: 5fr 4fr;
-    gap: 20px;
-    margin-bottom: 20px;
-}
-
-.left-section {
-    background-color: white;
-    padding: 20px;
-}
-
-.right-section {
-    background-color: #f8f9fa;
-    padding: 20px;
-    border-left: 1px solid #eee;
+  display: grid;
+  grid-template-columns: 5fr 4fr;
+  gap: 20px;
+  margin-bottom: 20px;
 }
 
 #shopping-input {
-    width: 60%;
-    padding: 8px;
-    margin-right: 10px;
+  width: 60%;
+  padding: 8px;
+  margin-right: 10px;
 }
 
 #shopping-list {
-    list-style-type: none;
-    margin-top: 15px;
+  list-style-type: none;
+  margin-top: 15px;
 }
 
 #shopping-list li {
-    padding: 8px;
-    background-color: #fff;
-    margin-bottom: 5px;
-    border-radius: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  padding: 8px;
+  background-color: #fff;
+  margin-bottom: 5px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 /* Weather Card */
 .weather-card .container{
-    height: 350px;
-    overflow-x: scroll;
-    position: relative;
+  height: 350px;
+  overflow-x: scroll;
+  position: relative;
 }
 
 .weather-card .updated{
-    font-size: 60%;
+  font-size: 60%;
 }
 
 .weather-card canvas{
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 3000px;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3000px;
 }
 
-
 #weather-location-list {
-    list-style-type: none;
-    padding: 0;
-    margin-top: 20px;
-    max-height: 400px;
-    overflow-y: auto;
+  list-style-type: none;
+  padding: 0;
+  margin-top: 20px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 #weather-location-list li {
-    padding: 10px;
-    background-color: #f9f9f9;
-    border-radius: 8px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-
-.calendar-card {
-    margin-top: 20px;
-    /* text-align: center; */
-}
-
 
 #calendar-events {
-    list-style-type: none;
-    padding: 0;
-    margin-top: 20px;
-    max-height: 400px;
-    overflow-y: auto;
+  list-style-type: none;
+  padding: 0;
+  margin-top: 20px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .calendar-event {
-    background-color: #f9f9f9;
-    border-radius: 4px;
-    padding: 8px;
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 /* Modal Styles */
@@ -204,4 +185,57 @@ button:hover {
   font-size: 32px;
   font-weight: bold;
   cursor: pointer;
+}
+
+/* Train Schedule Styles */
+.train-card {
+  grid-column: 1 / -1;
+}
+
+.train-card #train-schedule{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+  overflow: scroll;
+  height: 300px;
+}
+
+.train-card .direction-section {
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.train-card h3 {
+  font-family: 'Arial', sans-serif;
+  font-size: 20px;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.train-card ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+.train-card li {
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  margin-bottom: 5px;
+}
+
+.train-card th, .train-card td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.train-card th {
+  background-color: #f2f2f2;
+}
+
+.train-card tr:hover {
+  background-color: #f9f9f9;
 }

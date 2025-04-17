@@ -7,3 +7,4 @@ class Config:
     DEBUG = True
     JSON_AS_ASCII = False
     WEATHER_LOCATION = 'Tokyo'
+    TRAIN_STATION_URL = "https://www.jreast-timetable.jp/en/timetable/list0303.html"

@@ -24,12 +24,6 @@ class WeatherData(BaseModel):
     # condition = CharField()
     last_updated = DateTimeField(default=datetime.datetime.now)
 
-class TrainSchedule(BaseModel):
-    train_id = CharField()
-    destination = CharField()
-    departure_time = DateTimeField()
-    status = CharField()
-
 class ShoppingListItem(BaseModel):
     item_name = CharField()
     quantity = IntegerField(default=1)
@@ -38,4 +32,4 @@ class ShoppingListItem(BaseModel):
 # Create tables if they don't exist
 database.connect()
 # database.drop_tables([WeatherData])
-database.create_tables([Task, WeatherData, TrainSchedule, ShoppingListItem])
+database.create_tables([Task, WeatherData, ShoppingListItem])
