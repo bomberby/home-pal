@@ -1,6 +1,6 @@
 from flask import jsonify, request, render_template
 from playhouse.shortcuts import model_to_dict, dict_to_model
-from models import Task, WeatherData, TrainSchedule, ShoppingListItem
+from models import Task, WeatherData, ShoppingListItem
 from datetime import datetime
 import urllib.parse
 import json

@@ -1,6 +1,6 @@
 from flask import Flask
 import config
-from models import database, Task, WeatherData, TrainSchedule
+from models import database
 from routes import init_routes
 from cache import cache
 
