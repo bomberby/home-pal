@@ -142,7 +142,7 @@ button:hover {
   list-style-type: none;
   padding: 0;
   margin-top: 20px;
-  max-height: 400px;
+  max-height: 330px;
   overflow-y: auto;
 }
 
@@ -197,15 +197,24 @@ button:hover {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 20px;
-  overflow: scroll;
+  overflow-y: scroll;
   height: 300px;
 }
 
-.train-card .direction-section {
-  background-color: #f9f9f9;
+.train-card #train-schedule-headers{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  height: 40px;
+  padding-right: 15px;
+  margin-bottom: 5px;
+}
+
+.train-card .direction-table {
+  background-color: #e3e3e3;
   border-radius: 4px;
   padding: 10px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: inset -3px -3px 8px 0px rgba(0, 0, 0, 0.1);
 }
 
 .train-card h3 {
@@ -234,8 +243,4 @@ button:hover {
 
 .train-card th {
   background-color: #f2f2f2;
-}
-
-.train-card tr:hover {
-  background-color: #f9f9f9;
 }

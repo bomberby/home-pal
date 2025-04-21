@@ -5,10 +5,11 @@ function fetchTrainSchedule() {
     .then(schedule => {
       const scheduleTable = document.getElementById('train-schedule');
       scheduleTable.innerHTML = '';
+      const scheduleHeaderTable = document.getElementById('train-schedule-headers');
+      scheduleHeaderTable.innerHTML = '';
       const now = Date.now();
       const datePrefix = new Date().toISOString().substring(0, 11);
       scrollToElement = null
-
       schedule.forEach(direction => {
         const table = document.createElement('table');
         table.className = 'direction-table';
@@ -17,24 +18,29 @@ function fetchTrainSchedule() {
         const headerRow = table.insertRow();
         const directionCell = headerRow.insertCell(0);
         directionCell.colSpan = 2;
-        directionCell.height = 10;
         directionCell.textContent = direction.direction;
+        scheduleHeaderTable.appendChild(table);
+      });
+
+      schedule.forEach(direction => {
+        const table = document.createElement('table');
+        table.className = 'direction-table';
 
         // Create time and train rows
         direction.timetable.forEach(train => {
           const row = table.insertRow();
           const timeCell = row.insertCell(0);
-          const trainCell = row.insertCell(1);
           if (scrollToElement === null && Date.parse(datePrefix + train.time) + 60*60*1000 > now) { // one hours ago
             scrollToElement = row
           } 
 
           if (train.train) {
             timeCell.textContent = train.time;
-            trainCell.textContent = `Train: ${train.train}`;
+            trainCell = row.insertCell(1);
+            trainCell.textContent = train.train;
           } else {
             timeCell.textContent = train.time;
-            trainCell.textContent = '';
+            timeCell.colSpan = 2
           }
         });
 
