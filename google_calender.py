@@ -49,9 +49,8 @@ def logout():
         headers = {'content-type': 'application/x-www-form-urlencoded'})
     return redirect(url_for('index'))
 
-@google_calendar.route('/calendar/events')
 @cache.cached(timeout=60 * 60)  # Cache the result for 1 hour
-def get_calendar_events():
+def get_all_events():
     # Load credentials from the session if available, otherwise load from file
     credentials = credentials_from_storage()
     
@@ -86,8 +85,14 @@ def get_calendar_events():
     sorted_events = sorted(filtered_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
     
     events = sorted_events
-    # Write the credentials in case the refresh token changed
     with open('token.pickle', 'wb') as token:
         pickle.dump(credentials, token)
+    return events
+    
+@google_calendar.route('/calendar/events')
+def get_calendar_events():
+    events = get_all_events()
+    # Write the credentials in case the refresh token changed
+
 
     return jsonify(events)

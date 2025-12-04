@@ -80,4 +80,5 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     fetchCalendarEvents();
+    setInterval(fetchCalendarEvents, 300000); // Refresh every 5 minutes (300000 milliseconds)
 });

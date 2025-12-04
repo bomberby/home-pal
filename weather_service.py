@@ -3,12 +3,13 @@ from models import WeatherData
 from playhouse.shortcuts import model_to_dict
 import requests
 
+CACHE_DURATION = 3600
 def get_cached_or_fetch(cities):
     weather_data_dict = {}
     for city in cities:
         try:
             weather_data = WeatherData.get(WeatherData.city == city)
-            if (datetime.now() - weather_data.last_updated).total_seconds() > 3600:
+            if (datetime.now() - weather_data.last_updated).total_seconds() > CACHE_DURATION:
                 weather_data_dict[city] = model_to_dict(fetch_weather_data(city))
             else:
                 weather_data_dict[city] = model_to_dict(weather_data)
@@ -65,11 +66,15 @@ def geo_from_city_name(city):
 
 
     # GEO from fallbacks
-    if city == 'Ome':
-        geo['latitude'] = 35.7902208
-        geo['longitude'] = 139.258213
-
-    # Tokyo
-    geo['latitude'] = geo.get('latitude', 35.7203484)
-    geo['longitude'] = geo.get('longitude', 139.7831018)
+    match city:
+        case 'Ome':
+            geo['latitude'] = 35.7902208
+            geo['longitude'] = 139.258213
+        case 'Osaka':
+            geo['latitude'] = 34.6774872
+            geo['longitude'] = 135.3212277
+        case _:
+            # Tokyo
+            geo['latitude'] = geo.get('latitude', 35.7203484)
+            geo['longitude'] = geo.get('longitude', 139.7831018)
     return geo

@@ -16,7 +16,7 @@ def create_app():
 
     def after_request(response):
         database.close()
-        return response
+        return response 
 
     app.before_request(before_request)
     app.after_request(after_request)

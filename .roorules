@@ -8,6 +8,9 @@
 - After writing a change to a file, read the file once again to get the most recent version of it
 - if you receive an error about "No sufficiently similar match" read the file before attempting the change again.
 - Make incremental changes to files, don't overwrite the entire file, add your change to the existing file
+- When implementing new features, consider how they integrate with existing architecture patterns
+- Document decisions made during implementation (like choosing one library over other libraries) as part of the rules for future reference
+- Note any limitations or areas requiring further work (such as yet undeveloped parts in frontend)
 
 # Enviournment information
 - This is a python server with flask and peewee, frontend is plain http with JS and CSS connecting to the endpoints defined in routes.py
