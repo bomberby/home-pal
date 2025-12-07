@@ -1,0 +1,99 @@
+/* Mic display and analytics */
+#mic-toggle {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 28px;
+
+    /* smooth animations */
+    transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+
+    /* subtle shadow */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 1000;
+}
+
+/* OFF state */
+#mic-toggle.mic-off {
+    background-color: #cbd5e1; /* soft gray */
+    color: #475569;
+}
+
+/* ON state */
+#mic-toggle.mic-on {
+    background-color: #de604a; /* green */
+    color: white;
+    box-shadow: 0 6px 18px rgba(222, 96, 74, 0.4);
+}
+
+/* Hover effects */
+#mic-toggle:hover {
+    transform: scale(1.07);
+}
+
+/* Pulse glow when ON and actively listening (optional) */
+#mic-toggle.mic-on.listening {
+    animation: pulseGlow 1.4s infinite;
+}
+
+@keyframes pulseGlow {
+    0% { box-shadow: 0 0 6px 2px rgba(222, 74, 74, 0.925); }
+    50% { box-shadow: 0 0 14px 6px rgba(222, 84, 74, 0.55); }
+    100% { box-shadow: 0 0 6px 2px rgba(222, 116, 74, 0.3); }
+}
+
+/* Waveform container */
+.mic-wave {
+    position: absolute;
+    width: 70%;
+    height: 70%;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 3px;
+    pointer-events: none;
+    opacity: 0; 
+    transition: opacity 0.25s ease;
+}
+
+/* Bars */
+.mic-wave span {
+    width: 4px;
+    background: white;
+    border-radius: 2px;
+    height: 20%;
+}
+
+/* Only animate when wave-show class is present */
+#mic-toggle.wave-show .mic-wave {
+    opacity: 1;
+}
+
+#mic-toggle.wave-show .mic-wave span {
+    animation: waveAnim 0.9s ease-in-out infinite;
+}
+
+#mic-toggle.wave-show .mic-wave span:nth-child(1) { animation-delay: 0s; }
+#mic-toggle.wave-show .mic-wave span:nth-child(2) { animation-delay: 0.1s; }
+#mic-toggle.wave-show .mic-wave span:nth-child(3) { animation-delay: 0.2s; }
+#mic-toggle.wave-show .mic-wave span:nth-child(4) { animation-delay: 0.3s; }
+
+@keyframes waveAnim {
+    0%   { height: 20%; }
+    25%  { height: 55%; }
+    50%  { height: 100%; }
+    75%  { height: 55%; }
+    100% { height: 20%; }
+}
+
+.mic-icon {
+    position: relative;
+    z-index: 2;
+}

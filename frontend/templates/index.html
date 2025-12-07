@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Server Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/agent.css') }}">
 
 </head>
 <body>
@@ -68,6 +69,14 @@
         </div>
     </div>
 
+    <div id="mic-toggle" class="mic-off" title="Agent is not listening">
+        <div class="mic-wave">
+            <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="mic-icon">
+            🎤
+        </div>
+    </div>
     <script src="https://apis.google.com/js/platform.js" async defer></script>
     <script src="{{ url_for('static', filename='js/dist/chart.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dist/chartjs-plugin-annotation.min.js') }}"></script>

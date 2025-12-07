@@ -2,6 +2,7 @@ from datetime import datetime
 from models import WeatherData
 from playhouse.shortcuts import model_to_dict
 import requests
+import json
 
 CACHE_DURATION = 3600
 def get_cached_or_fetch(cities):
@@ -27,8 +28,8 @@ def fetch_weather_data(city):
         latitude = data['latitude']
         longitude = data['longitude']
         timezone = data['timezone']
-        hourly_temperatures = data['hourly']['temperature_2m']
-        hourly_precipitation = data['hourly']['precipitation']
+        hourly_temperatures = json.dumps(data['hourly']['temperature_2m'])
+        hourly_precipitation = json.dumps(data['hourly']['precipitation'])
         first_time = data['hourly']['time'][0]
         
         # Update or create weather data
