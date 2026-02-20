@@ -2,4 +2,5 @@ my_database.db
 __pycache__/*
 agents/__pycache__/*
 /env/secrets
+/embedded/*/secrets.h
 token.pickle
