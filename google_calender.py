@@ -77,12 +77,11 @@ def get_all_events():
             event['calendar_index'] = calendar_indices[calendar['id']]
             all_events.append(event)
     
-    # Filter out events without a summary field
-    filtered_events = [event for event in all_events if 'summary' in event]
+
     
     # Sort events by start time
     # Ensure safe access to 'dateTime' and 'date'
-    sorted_events = sorted(filtered_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
+    sorted_events = sorted(all_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
     
     events = sorted_events
     with open('token.pickle', 'wb') as token:
@@ -92,6 +91,10 @@ def get_all_events():
 @google_calendar.route('/calendar/events')
 def get_calendar_events():
     events = get_all_events()
+
+    # Filter out events without a summary field
+    events = [event for event in events if 'summary' in event]
+
     # Write the credentials in case the refresh token changed
 
 

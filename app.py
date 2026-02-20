@@ -31,4 +31,4 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=config.Config.DEBUG)
+    app.run(debug=config.Config.DEBUG, host='0.0.0.0')

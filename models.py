@@ -29,7 +29,12 @@ class ShoppingListItem(BaseModel):
     quantity = IntegerField(default=1)
     purchased = BooleanField(default=False)
 
+class SmartHomeDevice(BaseModel):
+    name = CharField()
+    activated = BooleanField(default=True)
+    mode = CharField(null=True)
+
 # Create tables if they don't exist
 database.connect()
-# database.drop_tables([WeatherData])
-database.create_tables([Task, WeatherData, ShoppingListItem])
+# database.drop_tables([SmartHomeDevice])
+database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice])

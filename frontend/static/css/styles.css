@@ -280,3 +280,49 @@ button:hover {
   font-weight: 600;
 }
 
+
+
+#light-toggle {
+    position: fixed;
+    bottom: 90px;
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 28px;
+
+    /* smooth animations */
+    transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+
+    /* subtle shadow */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 1000;
+    background-color: #cbd5e1; /* soft gray */
+    color: #475569;
+}
+#rainbow-toggle {
+    position: fixed;
+    bottom: 90px;
+    right: 95px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 28px;
+
+    /* smooth animations */
+    transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.15s ease;
+
+    /* subtle shadow */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 1000;
+    background-color: #cbd5e1; /* soft gray */
+    color: #475569;
+}

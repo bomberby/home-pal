@@ -32,7 +32,8 @@ function askAgent(query) {
   .then(response => response.json())
   .then(data => {
     console.log("Agent response:", data.response);
-    speakText(data.response);  // reuse your TTS
+    if (data.response)
+      speakText(data.response);  // reuse your TTS
   })
   .catch(error => {
     console.error("Error:", error);
@@ -54,7 +55,8 @@ recognition.interimResults = false;
 recognition.lang = 'en-US';
 recognition.processLocally = true;
 
-const wakeWords = ['hey assistant', 'hey agent', 'hey miku'];
+const wakeWords = ['hey assistant', 'hey agent', 'hey miku', 'aziz'];
+const missheardWakeWords = ['pay agent']
 
 // Phrases bias
 const phraseData = wakeWords.map(
@@ -105,7 +107,7 @@ recognition.onresult = event => {
     return;
   }
 
-  const wakeword = wakeWords.find(v => transcript.includes(v))
+  const wakeword = wakeWords.concat(missheardWakeWords).find(v => transcript.includes(v))
   if (wakeword) {
     const query = transcript.replace(wakeword, '').trim();
 

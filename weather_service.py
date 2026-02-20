@@ -74,6 +74,9 @@ def geo_from_city_name(city):
         case 'Osaka':
             geo['latitude'] = 34.6774872
             geo['longitude'] = 135.3212277
+        case 'Tel Aviv':
+            geo['latitude'] = 32.0943305
+            geo['longitude'] = 34.8013659
         case _:
             # Tokyo
             geo['latitude'] = geo.get('latitude', 35.7203484)
