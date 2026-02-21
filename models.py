@@ -34,7 +34,11 @@ class SmartHomeDevice(BaseModel):
     activated = BooleanField(default=True)
     mode = CharField(null=True)
 
+class WeatherLocation(BaseModel):
+    location_name = CharField(unique=True)
+    is_default = BooleanField(default=False)
+
 # Create tables if they don't exist
 database.connect()
-# database.drop_tables([SmartHomeDevice])
-database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice])
+# database.drop_tables([WeatherLocation])
+database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice, WeatherLocation])

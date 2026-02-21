@@ -49,7 +49,7 @@ def logout():
         headers = {'content-type': 'application/x-www-form-urlencoded'})
     return redirect(url_for('index'))
 
-@cache.cached(timeout=60 * 60)  # Cache the result for 1 hour
+@cache.memoize(timeout=60 * 60)  # Cache the result for 1 hour
 def get_all_events():
     # Load credentials from the session if available, otherwise load from file
     credentials = credentials_from_storage()

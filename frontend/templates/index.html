@@ -69,6 +69,17 @@
         </div>
     </div>
 
+    <!-- Persona - fixed to bottom-left, outside the page grid -->
+    <div class="persona-card">
+        <div id="persona-spinner" class="persona-spinner">Generating...</div>
+        <div id="persona-content" style="display:none;">
+            <div class="persona-bubble" id="persona-bubble"></div>
+            <div class="persona-img-wrapper">
+                <img id="persona-img" alt="persona">
+            </div>
+        </div>
+    </div>
+
     <div id="mic-toggle" class="mic-off" title="Agent is not listening">
         <div class="mic-wave">
             <span></span><span></span><span></span><span></span>
@@ -98,5 +109,6 @@
     <script src="{{ url_for('static', filename='js/shopping-list.js') }}"></script>
     <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
     <script src="{{ url_for('static', filename='js/agent.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/persona.js') }}"></script>
 </body>
 </html>

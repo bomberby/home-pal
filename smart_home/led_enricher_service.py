@@ -1,14 +1,13 @@
 from typing import List, Dict
-from weather_service import get_cached_or_fetch
+from services.weather_service import get_cached_or_fetch, get_default_location
 import json
 import datetime
-import google_calender
+import services.google_calendar as google_calendar
 import re
 from cache import cache
 
 class LedEnricherService:
   NUM_LEDS = 60
-  WEATHER_LOCATION = "Tokyo"
 
   def __init__(self, device):
     self.device = device
@@ -29,7 +28,7 @@ class LedEnricherService:
     self.add_indicator(self.weather_indicator())
     # self.add_indicator(alert_indicator)
     try:
-      self.add_indicator(self.special_occations())
+      self.add_indicator(self.special_occasions())
     except Exception as e:
       print("Calendar exception:", e)
       self.add_indicator(alert_indicator)
@@ -40,12 +39,12 @@ class LedEnricherService:
       self.add_indicator(alert_indicator)
 
   def weather_indicator(self):
-    locations = [self.WEATHER_LOCATION]
-    weather_data = get_cached_or_fetch(locations)
-    city_data = weather_data.get(self.WEATHER_LOCATION)
+    location = get_default_location()
+    weather_data = get_cached_or_fetch([location])
+    city_data = weather_data.get(location)
 
     if not city_data:
-        raise Exception("Weather data for Tokyo is unavailable.")
+        raise Exception(f"Weather data for {location} is unavailable.")
 
     precipitation = json.loads(city_data["hourly_precipitation"])
     temperatures = json.loads(city_data["hourly_temperatures"])
@@ -127,7 +126,7 @@ class LedEnricherService:
 
 
 
-  def special_occations(self):
+  def special_occasions(self):
     leds = []
 
     today_events = self.today_events()
@@ -158,7 +157,7 @@ class LedEnricherService:
        }]})
 
     indicator = {
-      "type": "occations",
+      "type": "occasions",
       "priority": 1,
       "leds": leds,
       "animations": [] }
@@ -219,7 +218,7 @@ class LedEnricherService:
   def today_events(self):
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
-    events = google_calender.get_all_events()
+    events = google_calendar.get_all_events()
 
     today_events = [event for event in events if LedEnricherService._is_event_today(event, today_str)]
     return today_events
@@ -229,7 +228,7 @@ class LedEnricherService:
     today = datetime.datetime.now()
     tomorrow = today + datetime.timedelta(days=1)
     tomorrow_str = tomorrow.strftime('%Y-%m-%d')
-    events = google_calender.get_all_events()
+    events = google_calendar.get_all_events()
 
     tomorrow_events = [event for event in events if LedEnricherService._is_event_tomorrow(event, tomorrow_str)]
     return tomorrow_events

@@ -1,7 +1,7 @@
 import datetime
 from agents.weather_agent_service import WeatherAgentService
 from agents.calendar_agent_service import CalendarAgentService
-from smart_home_service import get_device_status, change_device_status
+from smart_home.smart_home_service import get_device_status, change_device_status
 
 class AgentService:
     @classmethod

@@ -3,6 +3,7 @@ import config
 from models import database
 from routes import init_routes
 from cache import cache
+import services.ollama_service as ollama_service
 
 def create_app():
     app = Flask(__name__)
@@ -30,5 +31,6 @@ def create_app():
     return app
 
 if __name__ == '__main__':
+    ollama_service.start()
     app = create_app()
     app.run(debug=config.Config.DEBUG, host='0.0.0.0')

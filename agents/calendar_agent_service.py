@@ -1,4 +1,4 @@
-import google_calender
+import services.google_calendar as google_calendar
 import datetime
 
 class CalendarAgentService:
@@ -17,7 +17,7 @@ class CalendarAgentService:
     tomorrow_str = tomorrow.strftime('%Y-%m-%d')
 
     # Get all events from the calendar service (replace this with your service call)
-    events = google_calender.get_all_events()  # Fetch all events from your service
+    events = google_calendar.get_all_events()
 
     # Filter events based on the requested day (today or tomorrow)
     if day == "today":

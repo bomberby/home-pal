@@ -239,52 +239,56 @@ function closeWeatherSettings() {
   document.getElementById('weather-settings-modal').style.display = 'none';
 }
 
-function renderLocationsInModal() {
-  const cookieValue = getCookieValue('weather_locations')
-  var locations
-  if (cookieValue != '') {
-    locations = JSON.parse(decodeURIComponent(cookieValue));
-  } else {
-    locations = []
-  }
-    
+async function renderLocationsInModal() {
+  const response = await fetch('/weather-locations');
+  const locations = await response.json();
+
   const locationsContainer = document.getElementById('weather-location-list');
   locationsContainer.innerHTML = '';
-  locations.forEach(location => {
+  locations.forEach(({ location_name, is_default }) => {
     const li = document.createElement('li');
-    li.textContent = location;
+    li.textContent = location_name;
+
+    const starButton = document.createElement('button');
+    starButton.textContent = is_default ? '★' : '☆';
+    starButton.style.marginLeft = '10px';
+    starButton.addEventListener('click', () => setDefaultLocation(location_name));
+    li.appendChild(starButton);
 
     // Add delete button
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'X';
-    deleteButton.style.marginLeft = '10px';
-    deleteButton.addEventListener('click', () => deleteLocation(location));
+    deleteButton.style.marginLeft = '5px';
+    deleteButton.addEventListener('click', () => deleteLocation(location_name));
     li.appendChild(deleteButton);
 
     locationsContainer.appendChild(li);
   });
 }
 
+async function setDefaultLocation(location) {
+  await fetch(`/weather-locations/${encodeURIComponent(location)}/set-default`, { method: 'POST' });
+  renderLocationsInModal();
+}
+
 // Update weather location
-function updateWeatherLocation() {
+async function updateWeatherLocation() {
   const location = document.getElementById('weather-location').value;
   if (location) {
-    // Store the location in a cookie
-    if (getCookieValue('weather_locations') != '') {
-      locationsList = JSON.parse(decodeURIComponent(getCookieValue('weather_locations'))) || [];
-    }
-    else {
-      locationsList = []
-    }
-    locationsList.push(location);
-    document.cookie = `weather_locations=${encodeURIComponent(JSON.stringify(locationsList))}; path=/`;
+    await fetch('/weather-locations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_name: location })
+    });
+    document.getElementById('weather-location').value = '';
     renderLocationsInModal();
+    fetchWeather();
     closeWeatherSettings();
   }
 }
 
-function deleteLocation(location) {
-  locationsList = JSON.parse(decodeURIComponent(getCookieValue('weather_locations'))).filter(loc => location !== loc);
-  document.cookie = `weather_locations=${encodeURIComponent(JSON.stringify(locationsList))}; path=/`;
+async function deleteLocation(location) {
+  await fetch(`/weather-locations/${encodeURIComponent(location)}`, { method: 'DELETE' });
   renderLocationsInModal();
+  fetchWeather();
 }

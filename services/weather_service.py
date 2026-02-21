@@ -1,10 +1,23 @@
 from datetime import datetime
-from models import WeatherData
+from models import WeatherData, WeatherLocation
 from playhouse.shortcuts import model_to_dict
+from config import Config
 import requests
 import json
 
 CACHE_DURATION = 3600
+
+def get_default_location():
+    try:
+        loc = WeatherLocation.get(WeatherLocation.is_default == True)
+        return loc.location_name
+    except WeatherLocation.DoesNotExist:
+        pass
+    first = WeatherLocation.select().first()
+    if first:
+        return first.location_name
+    return Config.WEATHER_LOCATION
+
 def get_cached_or_fetch(cities):
     weather_data_dict = {}
     for city in cities:
@@ -64,9 +77,22 @@ def geo_from_city_name(city):
         pass
 
     # GEO FROM ONLINE LOOKUP
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "en", "format": "json"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            results = response.json().get("results", [])
+            if results:
+                geo['latitude'] = results[0]['latitude']
+                geo['longitude'] = results[0]['longitude']
+                return geo
+    except Exception as e:
+        print(f"Geocoding lookup failed for '{city}': {e}")
 
-
-    # GEO from fallbacks
+    # GEO from fallbacks (last resort)
     match city:
         case 'Ome':
             geo['latitude'] = 35.7902208
@@ -78,7 +104,6 @@ def geo_from_city_name(city):
             geo['latitude'] = 32.0943305
             geo['longitude'] = 34.8013659
         case _:
-            # Tokyo
-            geo['latitude'] = geo.get('latitude', 35.7203484)
-            geo['longitude'] = geo.get('longitude', 139.7831018)
+            geo['latitude'] = 35.7203484
+            geo['longitude'] = 139.7831018
     return geo

@@ -11,4 +11,7 @@ python-dotenv==1.0.0
 pyttsx3
 torch
 torchaudio
+diffusers>=0.27.0
+transformers>=4.38.0
+accelerate>=0.27.0
 # chatterbox-tts

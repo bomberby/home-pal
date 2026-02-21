@@ -1,6 +1,6 @@
 import datetime
 import json
-from weather_service import get_cached_or_fetch
+from services.weather_service import get_cached_or_fetch, get_default_location
 
 class WeatherAgentService:
   @staticmethod
@@ -61,12 +61,12 @@ class WeatherAgentService:
 
   @staticmethod
   def _fetch_weather_data():
-      locations = ['Tokyo']
-      weather_data = get_cached_or_fetch(locations)
-      city_data = weather_data.get("Tokyo")
+      location = get_default_location()
+      weather_data = get_cached_or_fetch([location])
+      city_data = weather_data.get(location)
 
       if not city_data:
-          raise Exception("Weather data for Tokyo is unavailable.")
+          raise Exception(f"Weather data for {location} is unavailable.")
 
       precipitation = json.loads(city_data["hourly_precipitation"])
       temperatures = json.loads(city_data["hourly_temperatures"])

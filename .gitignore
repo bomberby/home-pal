@@ -1,6 +1,15 @@
+## Database
 my_database.db
-__pycache__/*
-agents/__pycache__/*
-/env/secrets
-/embedded/*/secrets.h
+
+## Python cache
+__pycache__/
+*.pyc
+
+## Secrets & credentials
+env/secrets
+embedded/*/secrets.h
 token.pickle
+
+## Generated files
+tmp/
+eink_preview.png
