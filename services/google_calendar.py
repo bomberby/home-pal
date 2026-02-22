@@ -1,6 +1,7 @@
 from google_auth_oauthlib.flow import Flow
 from flask import Blueprint, request, session, redirect, url_for, jsonify
 from google.auth.credentials import Credentials
+import os
 import pickle
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
@@ -19,6 +20,8 @@ flow = Flow.from_client_secrets_file(
 google_calendar = Blueprint('google_calendar', __name__, template_folder='templates')
 
 def credentials_from_storage():
+    if not os.path.exists('token.pickle'):
+        raise FileNotFoundError("Google Calendar not authorised — visit /oauth/login to connect.")
     return pickle.load(open('token.pickle', 'rb'))
 
 @google_calendar.route('/oauth/login')

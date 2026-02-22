@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/agent.css') }}">
 
 </head>
-<body>
+<body{% if bg %} style="background: #{{ bg }};"{% endif %}{% if dark %} class="dark"{% endif %}>
     <div class="container">
         <h1>Dashboard</h1>
     
@@ -73,7 +73,10 @@
     <div class="persona-card">
         <div id="persona-spinner" class="persona-spinner">Generating...</div>
         <div id="persona-content" style="display:none;">
-            <div class="persona-bubble" id="persona-bubble"></div>
+            <div class="persona-bubble-row">
+                <div class="persona-bubble" id="persona-bubble"></div>
+                <button id="persona-speak-btn" class="persona-speak-btn" title="Speak" style="display:none;">🔊</button>
+            </div>
             <div class="persona-img-wrapper">
                 <img id="persona-img" alt="persona">
             </div>

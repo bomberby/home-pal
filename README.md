@@ -27,6 +27,22 @@ The persona character generates dynamic quotes using a local LLM via Ollama. The
 
 If you prefer a smaller/faster model, change `OLLAMA_MODEL` in `services/ollama_service.py` (e.g. `llama3.2:1b` is ≈800 MB).
 
+# Setting up MQTT (presence & air quality):
+The persona reacts to presence (BLE iBeacon via ESP32) and indoor air quality (VOC via Zigbee2MQTT). Both are read from an MQTT broker.
+
+1. Set the broker hostname and topic config in `config.py` (`MQTT_BROKER`, `PRESENCE_TOPIC`, `AIC_TOPIC`, `VOC_FIELD`, `VOC_THRESHOLD`)
+2. Create the credentials file `env/secrets/mqtt.json`:
+```json
+{
+  "username": "your-mqtt-username",
+  "password": "your-mqtt-password"
+}
+```
+3. Restart the server — it will subscribe automatically and print `[HomeContext] MQTT connected` on success
+
+If `env/secrets/mqtt.json` is absent, the server connects without credentials (useful for unauthenticated brokers).
+If the broker is unreachable, the persona defaults to always-home behaviour and logs a retry message every 30 seconds.
+
 # Setting up google calender:
 "Please follow these steps to set up Google Calendar API credentials:
 1. Go to https://console.developers.google.com/

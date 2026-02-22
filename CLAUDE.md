@@ -49,14 +49,18 @@ pip install -r requirements.txt
 ### Agents (`agents/`)
 
 - **`agent_service.py`** — Keyword-based intent router. Dispatches to `WeatherAgentService`, `CalendarAgentService`, or smart home actions.
-- **`persona_agent.py`** — Classifies current weather + time of day into a state key (`{weather}_{period}` or `in_meeting` / `meeting_soon`). Calls Ollama for dynamic quotes with a 10-minute TTL cache. Calendar overrides take highest priority.
+- **`persona_agent.py`** — Determines persona state from context. Calls Ollama for dynamic quotes (10-min TTL). Two Ollama call styles: `_generate_quote` (short reactive, ≤10 words) and `_generate_briefing` (spoken welcome, 2 sentences, always includes current time).
+- **`persona_states.py`** — All static SD prompts, fallback quotes, holiday patterns, and situation labels.
 - `weather_agent_service.py` / `calendar_agent_service.py` — Wrap data services for natural-language TTS responses.
 
 #### Persona state system
 
-State key format: `{weather_key}_{time_period}` e.g. `cold_evening`, `heavy_rain_morning`.
-Calendar overrides (`in_meeting`, `meeting_soon`) skip the weather+time logic entirely.
-`CHARACTER_PREFIX` in `persona_agent.py` + fixed seed 42 are the SD consistency anchors — changing either requires deleting all cached images in `tmp/persona/`.
+Priority chain (highest first): `hub_offline` → `absent` → `welcome_{period}` → `poor_air` → `indoor_discomfort` → holiday → `in_meeting` / `meeting_soon` → `{weather}_{period}`.
+
+State key format: `{weather}_{time_period}` e.g. `cold_evening`; `welcome_{time_period}` e.g. `welcome_night`; fixed keys for overrides.
+`CHARACTER_PREFIX` in `persona_states.py` + fixed seed 42 are the SD consistency anchors — changing either requires deleting all cached images in `tmp/persona/`.
+
+MQTT presence + air quality: `services/home_context_service.py`. Config in `config.py`; credentials in `env/secrets/mqtt.json`.
 
 ### Smart home (`smart_home/`)
 

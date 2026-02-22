@@ -20,10 +20,16 @@
           .then(data => {
               const li = document.createElement('li');
               li.className = 'shopping-item';
-              li.innerHTML = `
-                  <span class="item">${data.item_name}</span>
-                  <button class="shopping-button" onclick="deleteShoppingItem(${data.id})">x</button>
-              `;
+              li.dataset.id = data.id;
+              const span = document.createElement('span');
+              span.className = 'item';
+              span.textContent = data.item_name;
+              const btn = document.createElement('button');
+              btn.className = 'shopping-button';
+              btn.textContent = 'x';
+              btn.addEventListener('click', () => deleteShoppingItem(btn));
+              li.appendChild(span);
+              li.appendChild(btn);
               list.appendChild(li);
           })
           .catch(error => console.error('Error:', error));
@@ -33,14 +39,10 @@
   }
 
   function deleteShoppingItem(button) {
-      button.parentElement.remove();
-      
-      fetch(`/shopping-list-items/${button.parentElement.dataset.id}`, {
+      const li = button.parentElement;
+      li.remove();
+      fetch(`/shopping-list-items/${li.dataset.id}`, {
           method: 'DELETE'
-      })
-      .then(response => response.json())
-      .then(data => {
-          button.parentElement.remove();
       })
       .catch(error => console.error('Error:', error));
   }
@@ -52,10 +54,15 @@
                   const li = document.createElement('li');
                   li.className = 'shopping-item';
                   li.dataset.id = item.id;
-                  li.innerHTML = `
-                      <span class="item">${item.item_name}</span>
-                      <button class="shopping-button" onclick="deleteShoppingItem(this)">x</button>
-                  `;
+                  const span = document.createElement('span');
+                  span.className = 'item';
+                  span.textContent = item.item_name;
+                  const btn = document.createElement('button');
+                  btn.className = 'shopping-button';
+                  btn.textContent = 'x';
+                  btn.addEventListener('click', () => deleteShoppingItem(btn));
+                  li.appendChild(span);
+                  li.appendChild(btn);
                   document.getElementById('shopping-list').appendChild(li);
               });
           })

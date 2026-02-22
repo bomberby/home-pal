@@ -1,0 +1,5 @@
+profiles:
+  default:
+    board: "esp32:esp32:XIAO_ESP32S3"
+    board_options:
+      PSRAM: "opi"

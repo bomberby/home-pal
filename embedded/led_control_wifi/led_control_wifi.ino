@@ -17,12 +17,7 @@ Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-// const char* url = "http://192.168.1.232:5000/sh/led";
-// const char* url = "http://desktop-necq7ps.local:5000/sh/led";
-const char* url_host = "desktop-necq7ps";
 const char* url_path = "/sh/led";
-const char* url_port = "5000";
-const char* mqtt_server = "homeassistant.local"; // Your Home Assistant IP address
 
 // Animation state arrays
 unsigned long lastAnimTime[NUM_LEDS] = {0};
@@ -31,7 +26,20 @@ float pulsePhase[NUM_LEDS] = {0}; // for simple pulse animations
 
 StaticJsonDocument<4096> sharedDoc;  // store the latest indicator JSON
 SemaphoreHandle_t ledDocMutex;       // protects sharedDoc
-TaskHandle_t ledTaskHandle = nullptr; // handle to the LED task
+TaskHandle_t ledTaskHandle = nullptr;
+volatile bool ledTaskStopRequested = false;
+
+IPAddress serverIP;  // cached — resolved once, re-resolved only on failure
+
+bool resolveServer() {
+  serverIP = MDNS.queryHost(SERVER_HOST);
+  if (serverIP == INADDR_NONE) {
+    Serial.printf("[mDNS] Could not resolve %s\n", SERVER_HOST);
+    return false;
+  }
+  Serial.printf("[mDNS] %s -> %s\n", SERVER_HOST, serverIP.toString().c_str());
+  return true;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -53,23 +61,31 @@ void setup() {
     Serial.print(".");
   }
   Serial.println("\nConnected!");
-  mqttClient.setServer(mqtt_server, 1883);
+  MDNS.begin("esp32-led");
+  resolveServer();
+  mqttClient.setServer(MQTT_SERVER, 1883);
   setupBLETracker(BLE_UUID);
 }
 
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    IPAddress serverIP;
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] Disconnected — reconnecting...");
+    WiFi.reconnect();
+    delay(5000);
+    if (WiFi.status() != WL_CONNECTED) return;
+    Serial.println("[WiFi] Reconnected");
+    serverIP = INADDR_NONE;  // force mDNS re-resolve after reconnect
+  }
 
+  if (WiFi.status() == WL_CONNECTED) {
+    if (serverIP == INADDR_NONE) resolveServer();
+
+    HTTPClient http;
     digitalWrite(LED_BUILTIN, HIGH);
-    if (MDNS.begin("esp32-led")) { // Initialize mDNS
-      serverIP = MDNS.queryHost(url_host); // Note: No ".local" here
-    }
-    String url = "http://" + serverIP.toString() + ":" + url_port + url_path;
+    String url = "http://" + serverIP.toString() + ":" + SERVER_PORT + url_path;
     http.begin(url);
     int httpCode = http.GET();
-    digitalWrite(LED_BUILTIN, LOW);  
+    digitalWrite(LED_BUILTIN, LOW);
 
     if (httpCode == 200) {   // OK
       String payload = http.getString();
@@ -109,8 +125,8 @@ void loop() {
       }
     }
     else {
-      Serial.print("HTTP Error: ");
-      Serial.println(httpCode);
+      Serial.printf("[HTTP] Error %d — clearing cached IP for re-resolve\n", httpCode);
+      serverIP = INADDR_NONE;
     }
 
     if (!mqttClient.connected()) {
@@ -173,17 +189,7 @@ void stopRainbow() {
 
 
 void rainbowTask(void *parameter) {
-  return TurnRainbow();
-  rainbowStopRequested = false;
-
-  Serial.println("Rainbow task started.");
-
-  TurnRainbow();   // <-- Your original blocking function
-
-  Serial.println("Rainbow task finished.");
-
-  rainbowTaskHandle = NULL;
-  vTaskDelete(NULL);   // Self-delete
+  TurnRainbow();  // exits only via vTaskDelete(NULL) inside TurnRainbow
 }
 
 void TurnRainbow() {
@@ -213,8 +219,13 @@ void ledTask(void* pvParameters) {
 
     for (;;) {
         if (xSemaphoreTake(ledDocMutex, portMAX_DELAY) == pdTRUE) {
-            handleIndicatorMode(sharedDoc); // call your method
+            handleIndicatorMode(sharedDoc);
             xSemaphoreGive(ledDocMutex);
+        }
+        if (ledTaskStopRequested) {
+            ledTaskStopRequested = false;
+            ledTaskHandle = nullptr;
+            vTaskDelete(NULL);  // self-delete — mutex is already released at this point
         }
         vTaskDelay(delayTicks);
     }
@@ -241,14 +252,11 @@ void startIndicatorModeTask(const JsonDocument& doc) {
 }
 
 void stopIndicatorModeTask() {
-    if (ledTaskHandle != nullptr) {
-        vTaskDelete(ledTaskHandle);
-        ledTaskHandle = nullptr;
-
-        // Optionally turn off LEDs when stopping
-        strip.clear();
-        strip.show();
-    }
+    if (ledTaskHandle == nullptr) return;
+    ledTaskStopRequested = true;
+    while (ledTaskHandle != nullptr) delay(10);  // wait for task to self-delete
+    strip.clear();
+    strip.show();
 }
 
 
@@ -308,6 +316,14 @@ void handleIndicatorMode(JsonDocument& doc) {
         }
     }
 
+    // Status LED 56 — composited last so it's never overwritten by indicator data
+    if (WiFi.status() == WL_CONNECTED) {
+        strip.setPixelColor(56, strip.Color(0, 0, 15));  // dim blue: connected
+    } else {
+        float factor = (sin(millis() / 1000.0f) + 1.0f) / 2.0f;  // 1-second pulse
+        strip.setPixelColor(56, strip.Color((int)(factor * 200), 0, 0));  // red pulse: disconnected
+    }
+
     strip.show();
 }
 
@@ -344,7 +360,9 @@ void applyAnimations(
             }
         }
         else if (strcmp(type, "pulse") == 0) {
-            pulsePhase[index] += 0.08f;
+            // Advance phase by one frame's worth of the requested period.
+            // ledTask runs every 40ms, so increment = (2π × 40) / interval_ms
+            pulsePhase[index] += (TWO_PI * 40.0f) / (float)interval;
             if (pulsePhase[index] > TWO_PI) {
                 pulsePhase[index] -= TWO_PI;
             }
@@ -374,21 +392,16 @@ void turnOffLEDs() {
 
 
 void reconnectMQTT() {
-  // Loop until we're reconnected
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "ESP32C6Client-";
-    clientId += String(random(0xffff), HEX);
-    
-    // Attempt to connect
-    if (mqttClient.connect(clientId.c_str(),MQTT_USER,MQTT_PASSWORD)) {
-      Serial.println("connected");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" try again in 5 seconds");
-      vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
+  if (mqttClient.connected()) return;
+  static unsigned long lastAttempt = 0;
+  if (millis() - lastAttempt < 10000) return;  // one attempt every 10s
+  lastAttempt = millis();
+
+  String clientId = "ESP32C6Client-" + String(random(0xffff), HEX);
+  Serial.print("[MQTT] Connecting...");
+  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASSWORD)) {
+    Serial.println(" connected");
+  } else {
+    Serial.printf(" failed (rc=%d), will retry in 10s\n", mqttClient.state());
   }
 }

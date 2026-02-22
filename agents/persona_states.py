@@ -75,6 +75,131 @@ CALENDAR_STATES = {
     },
 }
 
+CONTEXT_STATES = {
+    "welcome": {
+        "prompt": "waving hello with a warm smile, standing in a bright doorway, welcoming gesture",
+        "quote": "Welcome home!",
+    },
+    "poor_air": {
+        "prompt": "indoors, covering her nose with a handkerchief, glancing at an air quality monitor with a worried expression",
+        "quote": "Ugh, the air feels really stuffy...",
+    },
+    "indoor_hot": {
+        "prompt": "indoors, fanning herself with a hand, looking flushed and uncomfortable, window in background",
+        "quote": "It's so hot in here...",
+    },
+    "indoor_cold": {
+        "prompt": "indoors, wrapped in a cosy blanket on a sofa, holding a warm mug, looking chilly",
+        "quote": "Can someone turn the heating on?!",
+    },
+    "indoor_humid": {
+        "prompt": "indoors, looking uncomfortable, slightly frizzy hair, cracking open a window",
+        "quote": "So sticky in here. Please, some fresh air.",
+    },
+    "hub_offline": {
+        "prompt": "sitting at a desk, staring at a dark unresponsive smart home panel with a puzzled and slightly worried expression",
+        "quote": "Something's not responding... is the hub down?",
+        "situation": "the smart home hub is offline and nothing is responding",
+    },
+}
+
+HOLIDAY_PATTERNS = [
+    # Pattern (case-insensitive)       State key
+    (r'Christmas',                      'christmas'),
+    (r'Hanukkah|Chanukah',              'hanukkah'),
+    (r"New Year",                       'new_year'),
+    (r'Halloween',                      'halloween'),
+    (r'Easter',                         'easter'),
+    (r"Valentine",                      'valentine'),
+    (r'Purim',                          'purim'),
+    (r'Passover|Pesach',                'passover'),
+    (r'Rosh Ha-?Shanah|Rosh HaShanah',  'rosh_hashana'),
+    (r'Yom Kippur',                     'yom_kippur'),
+    (r'Diwali',                         'diwali'),
+    (r'Thanksgiving',                   'thanksgiving'),
+    (r'Lunar New Year|Chinese New Year', 'lunar_new_year'),
+    (r'Eid al-Fitr|Eid ul-Fitr',        'eid_fitr'),
+    (r'Eid al-Adha|Eid ul-Adha',        'eid_adha'),
+]
+
+HOLIDAY_STATES = {
+    'christmas': {
+        'prompt': 'wearing a Santa hat and cosy red sweater, decorated Christmas tree with lights in background, warm festive glow',
+        'quote': 'Merry Christmas!',
+        'situation': "it's Christmas today",
+    },
+    'hanukkah': {
+        'prompt': 'standing beside a glowing menorah, soft candlelight, Star of David in background',
+        'quote': 'Happy Hanukkah!',
+        'situation': "it's Hanukkah",
+    },
+    'new_year': {
+        'prompt': 'wearing a sparkly party hat, holding a glass of champagne, fireworks bursting through the window behind her',
+        'quote': 'Happy New Year!',
+        'situation': "it's New Year",
+    },
+    'halloween': {
+        'prompt': 'wearing a cute witch hat and cape, holding a carved pumpkin lantern, spooky decorations in background',
+        'quote': "Happy Halloween~",
+        'situation': "it's Halloween",
+    },
+    'easter': {
+        'prompt': 'in a spring meadow, holding a basket of colourful painted eggs, flowers blooming around her',
+        'quote': 'Happy Easter!',
+        'situation': "it's Easter",
+    },
+    'valentine': {
+        'prompt': 'holding a bouquet of red roses, heart decorations, soft pink and red lighting',
+        'quote': "Happy Valentine's Day~",
+        'situation': "it's Valentine's Day",
+    },
+    'purim': {
+        'prompt': 'wearing a colourful costume and masquerade mask, holding hamantaschen cookies, joyful festive atmosphere',
+        'quote': 'Chag Purim Sameach!',
+        'situation': "it's Purim",
+    },
+    'passover': {
+        'prompt': 'at a beautifully set Passover seder table with a seder plate and matzah, warm candlelit atmosphere',
+        'quote': 'Chag Pesach Sameach!',
+        'situation': "it's Passover",
+    },
+    'rosh_hashana': {
+        'prompt': 'holding a jar of honey and an apple, pomegranate and round challah on a festive table behind her',
+        'quote': 'Shana Tova!',
+        'situation': "it's Rosh Hashana, the Jewish New Year",
+    },
+    'yom_kippur': {
+        'prompt': 'sitting quietly in thoughtful reflection, soft candlelight, serene and contemplative expression',
+        'quote': 'Gmar Chatima Tova.',
+        'situation': "it's Yom Kippur, a solemn Jewish day of atonement",
+    },
+    'diwali': {
+        'prompt': 'surrounded by glowing oil diyas and colourful rangoli patterns, wearing traditional festive attire',
+        'quote': 'Happy Diwali!',
+        'situation': "it's Diwali",
+    },
+    'thanksgiving': {
+        'prompt': 'sitting at a warm autumn feast table with a turkey and pumpkins, golden fall lighting',
+        'quote': 'Happy Thanksgiving!',
+        'situation': "it's Thanksgiving",
+    },
+    'lunar_new_year': {
+        'prompt': 'wearing a red cheongsam, red lanterns and gold decorations in background, fireworks outside the window',
+        'quote': 'Happy Lunar New Year!',
+        'situation': "it's Lunar New Year",
+    },
+    'eid_fitr': {
+        'prompt': 'wearing elegant festive attire, crescent moon and lanterns in background, warm celebratory atmosphere',
+        'quote': 'Eid Mubarak!',
+        'situation': "it's Eid al-Fitr",
+    },
+    'eid_adha': {
+        'prompt': 'wearing elegant festive attire, crescent moon and stars in background, joyful and warm expression',
+        'quote': 'Eid Mubarak!',
+        'situation': "it's Eid al-Adha",
+    },
+}
+
 SITUATION_LABELS = {
     "heavy_rain": "heavy rain",
     "light_rain": "light rain",

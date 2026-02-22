@@ -11,8 +11,15 @@ FIXED_SEED = 42
 OUTPUT_DIR = Path("tmp/persona")
 PROMPT_SUFFIX = ", soft lighting, clean background"
 NEGATIVE_PROMPT = (
-    "blurry, deformed, extra limbs, bad anatomy, multiple people, duplicate, "
-    "watermark, signature, text, lowres, worst quality, low quality"
+    "(worst quality:1.4), (low quality:1.4), (normal quality:1.3), (lowres:1.3), blurry, jpeg artifacts, "
+    "(bad anatomy:1.5), (deformed:1.4), (disfigured:1.4), (mutated:1.4), (malformed:1.4), "
+    "(extra limbs:1.4), (missing limbs:1.3), (floating limbs:1.4), (disconnected limbs:1.4), "
+    "(extra arms:1.4), (extra legs:1.4), (fused body parts:1.3), "
+    "(bad hands:1.5), (malformed hands:1.5), (mutated hands:1.5), (poorly drawn hands:1.4), "
+    "(extra fingers:1.5), (missing fingers:1.5), (fused fingers:1.5), (too many fingers:1.5), (wrong number of fingers:1.5), "
+    "(deformed face:1.4), (disfigured face:1.4), (malformed face:1.3), (bad face:1.3), "
+    "(cross-eyed:1.2), (asymmetric eyes:1.2), "
+    "multiple people, duplicate, clone, watermark, signature, text, username, error"
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
