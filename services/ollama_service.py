@@ -37,7 +37,7 @@ def _start_server():
             atexit.register(_stop)
             print("Ollama: started.")
     except FileNotFoundError:
-        print("WARNING: 'ollama' not found in PATH — persona quotes will use fallback text.")
+        print("Ollama: not found in PATH, assuming already running.")
     except Exception as e:
         print(f"WARNING: Could not start ollama: {e}")
 

@@ -4,6 +4,7 @@ const PERSONA_POLL_INTERVAL = 5000;
 let personaPollTimer = null;
 let _lastImageUrl = null;
 let _lastQuote = null;
+let _lastSuggestion = null;
 
 async function fetchPersona() {
   try {
@@ -18,7 +19,7 @@ async function fetchPersona() {
       personaPollTimer = setTimeout(fetchPersona, PERSONA_POLL_INTERVAL);
     } else {
       clearTimeout(personaPollTimer);
-      showPersona(data.image_url, data.quote);
+      showPersona(data.image_url, data.quote, data.suggestion ?? null);
     }
   } catch (error) {
     console.error('Error fetching persona:', error);
@@ -29,6 +30,8 @@ function hidePersona() {
   document.getElementById('persona-spinner').style.display = 'none';
   document.getElementById('persona-content').style.display = 'none';
   document.getElementById('persona-speak-btn').style.display = 'none';
+  const suggEl = document.getElementById('persona-suggestion');
+  if (suggEl) suggEl.style.display = 'none';
 }
 
 function showPersonaSpinner() {
@@ -37,17 +40,19 @@ function showPersonaSpinner() {
   document.getElementById('persona-speak-btn').style.display = 'none';
 }
 
-function showPersona(imageUrl, quote) {
+function showPersona(imageUrl, quote, suggestion) {
   document.getElementById('persona-spinner').style.display = 'none';
   document.getElementById('persona-content').style.display = 'flex';
 
   const img = document.getElementById('persona-img');
   const bubble = document.getElementById('persona-bubble');
+  const suggEl = document.getElementById('persona-suggestion');
 
   const sameImage = _lastImageUrl === imageUrl;
   const sameQuote = _lastQuote === quote;
+  const sameSuggestion = _lastSuggestion === suggestion;
 
-  if (sameImage && sameQuote) return; // nothing changed — skip entirely
+  if (sameImage && sameQuote && sameSuggestion) return; // nothing changed
 
   const speakBtn = document.getElementById('persona-speak-btn');
 
@@ -55,11 +60,22 @@ function showPersona(imageUrl, quote) {
     // Already showing something — crossfade only what changed
     if (!sameImage) img.style.opacity = '0';
     if (!sameQuote) bubble.style.opacity = '0';
+    if (!sameSuggestion && suggEl) suggEl.style.opacity = '0';
     setTimeout(() => {
       if (!sameQuote) {
         _lastQuote = quote;
         bubble.textContent = quote;
         bubble.style.opacity = '1';
+      }
+      if (!sameSuggestion && suggEl) {
+        _lastSuggestion = suggestion;
+        if (suggestion) {
+          suggEl.textContent = suggestion;
+          suggEl.style.display = '';
+          suggEl.style.opacity = '1';
+        } else {
+          suggEl.style.display = 'none';
+        }
       }
       if (!sameImage) {
         _lastImageUrl = imageUrl;
@@ -71,8 +87,17 @@ function showPersona(imageUrl, quote) {
     // First load — appear directly
     _lastImageUrl = imageUrl;
     _lastQuote = quote;
+    _lastSuggestion = suggestion;
     img.src = imageUrl + '?t=' + Date.now();
     bubble.textContent = quote;
+    if (suggEl) {
+      if (suggestion) {
+        suggEl.textContent = suggestion;
+        suggEl.style.display = '';
+      } else {
+        suggEl.style.display = 'none';
+      }
+    }
   }
 
   if (speakBtn) speakBtn.style.display = '';

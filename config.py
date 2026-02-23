@@ -1,13 +1,22 @@
 import os
 import secrets
+from pathlib import Path
+
+_SECRET_KEY_PATH = Path('env/secrets/secret_key.txt')
+
+def _resolve_secret_key() -> str:
+    if key := os.environ.get('SECRET_KEY'):
+        return key
+    if _SECRET_KEY_PATH.exists():
+        return _SECRET_KEY_PATH.read_text().strip()
+    key = secrets.token_hex(32)
+    _SECRET_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _SECRET_KEY_PATH.write_text(key)
+    return key
 
 class Config:
     SQLALCHEMY_DATABASE_URI = 'sqlite:///site.db'
-    _secret = os.environ.get('SECRET_KEY')
-    if not _secret:
-        _secret = secrets.token_hex(32)
-        print("WARNING: SECRET_KEY env var not set — using a random key. Sessions will reset on restart. Set SECRET_KEY to silence this.")
-    SECRET_KEY = _secret
+    SECRET_KEY = _resolve_secret_key()
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' # Allow local network oauth for calendar
     DEBUG = True
     JSON_AS_ASCII = False

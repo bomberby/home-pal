@@ -1,12 +1,13 @@
 import io
 import os
 import time
-from flask import Blueprint, jsonify, send_file, request
+from flask import Blueprint, jsonify, send_file, request, render_template
 from PIL import Image, ImageEnhance, ImageFilter
 
 cam_bp = Blueprint('cam', __name__)
 
 CAM_DIR = os.path.join('tmp', 'cam')
+STALE_SECONDS = 120
 
 
 def _device_dir(device_id: str) -> str:
@@ -19,6 +20,28 @@ def _latest_path(device_id: str) -> str:
 
 # In-memory registry of last-seen timestamps per device
 _devices: dict[str, dict] = {}
+
+
+def _status_for(device_id: str) -> dict:
+    """Build status dict, falling back to file mtime on server restart."""
+    path = _latest_path(device_id)
+    has_image = os.path.exists(path)
+    now = time.time()
+    info = _devices.get(device_id)
+
+    if info:
+        age = round(now - info['last_updated'])
+    elif has_image:
+        age = round(now - os.path.getmtime(path))
+    else:
+        return {'device_id': device_id, 'has_image': False, 'stale': True}
+
+    return {
+        'device_id': device_id,
+        'has_image': has_image,
+        'stale': age > STALE_SECONDS,
+        'last_updated_seconds_ago': age,
+    }
 
 
 @cam_bp.route('/cam/<device_id>/snapshot', methods=['POST'])
@@ -52,35 +75,50 @@ def receive_snapshot(device_id: str):
 
 @cam_bp.route('/cam/<device_id>/image', methods=['GET'])
 def get_image(device_id: str):
-    path = _latest_path(device_id)
-    if not os.path.exists(path):
+    status = _status_for(device_id)
+    if not status['has_image']:
         return jsonify({'error': 'no image yet'}), 404
-    return send_file(path, mimetype='image/jpeg')
+    if status['stale']:
+        return jsonify({'error': 'image is stale'}), 404
+    return send_file(_latest_path(device_id), mimetype='image/jpeg')
 
 
 @cam_bp.route('/cam/<device_id>/status', methods=['GET'])
 def get_status(device_id: str):
-    info = _devices.get(device_id)
-    if not info:
-        return jsonify({'device_id': device_id, 'has_image': False})
-    now = time.time()
-    return jsonify({
-        'device_id': device_id,
-        'has_image': os.path.exists(_latest_path(device_id)),
-        'last_updated': info['last_updated'],
-        'last_updated_seconds_ago': round(now - info['last_updated']),
-        'last_image_bytes': info['bytes'],
-    })
+    return jsonify(_status_for(device_id))
+
+
+@cam_bp.route('/cam/<device_id>/widget')
+def cam_widget(device_id: str):
+    bg = request.args.get('bg', '111827')
+    if not bg.replace('#', '').isalnum():
+        bg = '111827'
+    return render_template('cam_widget.html', device_id=device_id, bg=bg)
 
 
 @cam_bp.route('/cam/', methods=['GET'])
 def list_devices():
+    """List all known devices — includes file-based entries for server-restart resilience."""
+    result = {}
     now = time.time()
-    return jsonify({
-        device_id: {
-            'last_updated': info['last_updated'],
-            'last_updated_seconds_ago': round(now - info['last_updated']),
-            'last_image_bytes': info['bytes'],
+
+    for device_id, info in _devices.items():
+        age = round(now - info['last_updated'])
+        result[device_id] = {
+            'last_updated_seconds_ago': age,
+            'stale': age > STALE_SECONDS,
         }
-        for device_id, info in _devices.items()
-    })
+
+    # Devices with image files but no in-memory state (server restart)
+    if os.path.isdir(CAM_DIR):
+        for entry in os.scandir(CAM_DIR):
+            if entry.is_dir() and entry.name not in result:
+                path = os.path.join(entry.path, 'latest.jpg')
+                if os.path.exists(path):
+                    age = round(now - os.path.getmtime(path))
+                    result[entry.name] = {
+                        'last_updated_seconds_ago': age,
+                        'stale': age > STALE_SECONDS,
+                    }
+
+    return jsonify(result)

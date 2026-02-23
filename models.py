@@ -20,8 +20,8 @@ class WeatherData(BaseModel):
     timezone = CharField()
     hourly_temperatures = TextField()
     hourly_precipitation = TextField()
+    hourly_weathercodes = TextField(null=True)
     first_time = DateTimeField()
-    # condition = CharField()
     last_updated = DateTimeField(default=datetime.datetime.now)
 
 class ShoppingListItem(BaseModel):
@@ -40,5 +40,4 @@ class WeatherLocation(BaseModel):
 
 # Create tables if they don't exist
 database.connect()
-# database.drop_tables([WeatherLocation])
 database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice, WeatherLocation])

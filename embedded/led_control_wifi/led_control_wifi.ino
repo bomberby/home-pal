@@ -23,6 +23,7 @@ const char* url_path = "/sh/led";
 unsigned long lastAnimTime[NUM_LEDS] = {0};
 bool flashState[NUM_LEDS] = {false};
 float pulsePhase[NUM_LEDS] = {0}; // for simple pulse animations
+int cometPos[NUM_LEDS] = {0};    // comet head position per indicator key
 
 StaticJsonDocument<4096> sharedDoc;  // store the latest indicator JSON
 SemaphoreHandle_t ledDocMutex;       // protects sharedDoc
@@ -276,43 +277,63 @@ void handleIndicatorMode(JsonDocument& doc) {
         JsonArray leds = indicator["leds"];
         JsonArray indicatorAnimations = indicator["animations"];
 
-        for (JsonObject led : leds) {
-            int index = led["index"];
-            if (index < 0 || index >= NUM_LEDS) continue;
+        // Dispatch comet or standard per-LED rendering
+        JsonObject cometAnim;
+        bool hasComet = false;
+        if (!indicatorAnimations.isNull()) {
+            for (JsonObject anim : indicatorAnimations) {
+                const char* animType = anim["type"] | "";
+                if (strcmp(animType, "comet") == 0) {
+                    cometAnim = anim;
+                    hasComet = true;
+                    break;
+                }
+            }
+        }
 
-            // ---- Base color ----
-            int r = led["color"][0];
-            int g = led["color"][1];
-            int b = led["color"][2];
-            int brightness = led["brightness"] | 255;
+        if (hasComet) {
+            int keyIndex = -1;
+            for (JsonObject led : leds) { keyIndex = led["index"] | -1; break; }
+            if (keyIndex >= 0) applyComet(leds, keyIndex, cometAnim);
+        } else {
+            for (JsonObject led : leds) {
+                int index = led["index"];
+                if (index < 0 || index >= NUM_LEDS) continue;
 
-            float final_r = (r * brightness) / 255;
-            float final_g = (g * brightness) / 255;
-            float final_b = (b * brightness) / 255;
+                // ---- Base color ----
+                int r = led["color"][0];
+                int g = led["color"][1];
+                int b = led["color"][2];
+                int brightness = led["brightness"] | 255;
 
-            // ---- Apply indicator-level animations ----
-            applyAnimations(
-                indicatorAnimations,
-                index,
-                final_r, final_g, final_b
-            );
+                float final_r = (r * brightness) / 255;
+                float final_g = (g * brightness) / 255;
+                float final_b = (b * brightness) / 255;
 
-            // ---- Apply LED-level animations (override layer) ----
-            JsonArray ledAnimations = led["animations"];
-            applyAnimations(
-                ledAnimations,
-                index,
-                final_r, final_g, final_b
-            );
+                // ---- Apply indicator-level animations ----
+                applyAnimations(
+                    indicatorAnimations,
+                    index,
+                    final_r, final_g, final_b
+                );
 
-            strip.setPixelColor(
-                index,
-                strip.Color(
-                    (int)final_r,
-                    (int)final_g,
-                    (int)final_b
-                )
-            );
+                // ---- Apply LED-level animations (override layer) ----
+                JsonArray ledAnimations = led["animations"];
+                applyAnimations(
+                    ledAnimations,
+                    index,
+                    final_r, final_g, final_b
+                );
+
+                strip.setPixelColor(
+                    index,
+                    strip.Color(
+                        (int)final_r,
+                        (int)final_g,
+                        (int)final_b
+                    )
+                );
+            }
         }
     }
 
@@ -378,6 +399,61 @@ void applyAnimations(
             g = (g + pg) / 2;
             b = (b + pb) / 2;
         }
+    }
+}
+
+void applyComet(JsonArray leds, int keyIndex, JsonObject anim) {
+    int ar       = anim["color"][0] | 255;
+    int ag       = anim["color"][1] | 240;
+    int ab       = anim["color"][2] | 200;
+    int brightness = anim["brightness"] | 255;
+    int tailLen  = anim["tail_length"] | 3;
+    int interval = anim["interval_ms"] | 100;
+
+    int ledCount = leds.size();
+    if (ledCount == 0) return;
+
+    int total = ledCount + tailLen;  // comet cycles through this range
+
+    unsigned long now = millis();
+    if (now - lastAnimTime[keyIndex] >= (unsigned long)interval) {
+        cometPos[keyIndex]++;
+        if (cometPos[keyIndex] >= total) cometPos[keyIndex] = 0;
+        lastAnimTime[keyIndex] = now;
+    }
+
+    int head = cometPos[keyIndex];
+
+    int ledIdx = 0;
+    for (JsonObject led : leds) {
+        int index = led["index"] | -1;
+        if (index < 0 || index >= NUM_LEDS) { ledIdx++; continue; }
+
+        int r = led["color"][0];
+        int g = led["color"][1];
+        int b = led["color"][2];
+        int ledBrightness = led["brightness"] | 255;
+
+        float fr = (r * ledBrightness) / 255.0f;
+        float fg = (g * ledBrightness) / 255.0f;
+        float fb = (b * ledBrightness) / 255.0f;
+
+        // head at ledIdx means this LED is the comet head;
+        // Apply per-LED animations (e.g. flash) before comet overlay
+        JsonArray ledAnimations = led["animations"];
+        applyAnimations(ledAnimations, index, fr, fg, fb);
+
+        // dist > 0 means the head has passed this LED (tail)
+        int dist = head - ledIdx;
+        if (dist >= 0 && dist <= tailLen) {
+            float factor = 1.0f - (float)dist / (tailLen + 1);
+            fr = min(255.0f, fr + (ar * brightness * factor) / 255.0f);
+            fg = min(255.0f, fg + (ag * brightness * factor) / 255.0f);
+            fb = min(255.0f, fb + (ab * brightness * factor) / 255.0f);
+        }
+
+        strip.setPixelColor(index, strip.Color((int)fr, (int)fg, (int)fb));
+        ledIdx++;
     }
 }
 

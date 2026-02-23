@@ -1,5 +1,6 @@
 from typing import List, Dict
 from services.weather_service import get_cached_or_fetch, get_default_location
+from services.calendar_utils import is_event_on, parse_dt
 import json
 import datetime
 import services.google_calendar as google_calendar
@@ -26,15 +27,36 @@ class LedEnricherService:
             "animations": [{"type": "flash", "color": [255, 0, 0], "brightness": 255, "interval_ms": 4000}]
         }
 
-        self.add_indicator(self.weather_indicator())
+        weather = self.weather_indicator()
+        self.add_indicator(weather)
 
         try:
             events = google_calendar.get_all_events()
             now = datetime.datetime.now()
+            now_tz = datetime.datetime.now(datetime.timezone.utc).astimezone()
             today_str = now.strftime('%Y-%m-%d')
             tomorrow_str = (now + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-            today = [e for e in events if LedEnricherService._is_event_today(e, today_str)]
-            tomorrow = [e for e in events if LedEnricherService._is_event_tomorrow(e, tomorrow_str)]
+            today = [e for e in events if is_event_on(e, today_str)]
+            tomorrow = [e for e in events if is_event_on(e, tomorrow_str)]
+
+            soonest = None
+            for event in today:
+                start_str = event.get('start', {}).get('dateTime')
+                if not start_str:
+                    continue
+                time_until = (parse_dt(start_str) - now_tz).total_seconds()
+                if 0 <= time_until <= 3600:
+                    if soonest is None or time_until < soonest:
+                        soonest = time_until
+            if soonest is not None:
+                weather["animations"] = [{
+                    "type": "comet",
+                    "color": [255, 240, 200],
+                    "brightness": 70,
+                    "tail_length": 5,
+                    "interval_ms": max(30, int(soonest / 6))
+                }]
+
             self.add_indicator(self.special_occasions(today, tomorrow))
             self.add_indicator(self.calendar_indicator(today))
         except Exception as e:
@@ -160,7 +182,7 @@ class LedEnricherService:
         if timed_events:
             current_and_future_events = []
             for event in timed_events:
-                event_time = datetime.datetime.fromisoformat(event.get('end', {}).get('dateTime'))
+                event_time = parse_dt(event.get('end', {}).get('dateTime'))
                 if event_time > now:
                     current_and_future_events.append(event)
 
@@ -178,19 +200,15 @@ class LedEnricherService:
                             print('unexpected calendar', event.get('calendar_index'))
                             color = [200, 200, 5]
 
-                    time_until = (datetime.datetime.fromisoformat(event.get('start', {}).get('dateTime')) - now).total_seconds()
-                    if time_until < 0 or time_until > 60 * 60 * 1:
-                        animation_interval = 0
+                    time_until = (parse_dt(event.get('start', {}).get('dateTime')) - now).total_seconds()
+                    if time_until < 0 or time_until > 3600:
                         brightness = int(min(max(8, max_brightness - time_until / 60), max_brightness))
+                        led_animations = []
                     else:
-                        animation_interval = int(time_until)
                         brightness = max_brightness
+                        led_animations = [{"type": "flash", "color": color, "brightness": 255, "interval_ms": int(time_until)}]
 
-                    if animation_interval > 0:
-                        animations = [{"type": "flash", "color": color, "brightness": 255, "interval_ms": animation_interval}]
-                    else:
-                        animations = []
-                    leds.append({"index": i, "color": color, "brightness": brightness, "animations": animations})
+                    leds.append({"index": i, "color": color, "brightness": brightness, "animations": led_animations})
                     i += 1
 
         return {
@@ -203,33 +221,13 @@ class LedEnricherService:
         today = datetime.datetime.now()
         today_str = today.strftime('%Y-%m-%d')
         events = google_calendar.get_all_events()
-        return [event for event in events if LedEnricherService._is_event_today(event, today_str)]
+        return [event for event in events if is_event_on(event, today_str)]
 
     def tomorrow_events(self):
         tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
         tomorrow_str = tomorrow.strftime('%Y-%m-%d')
         events = google_calendar.get_all_events()
-        return [event for event in events if LedEnricherService._is_event_tomorrow(event, tomorrow_str)]
-
-    @staticmethod
-    def _is_event_today(event, today_str):
-        event_start = event['start'].get('dateTime', event['start'].get('date'))
-        event_date = LedEnricherService._extract_event_date(event_start)
-        return event_date == today_str
-
-    @staticmethod
-    def _is_event_tomorrow(event, tomorrow_str):
-        event_start = event['start'].get('dateTime', event['start'].get('date'))
-        event_date = LedEnricherService._extract_event_date(event_start)
-        return event_date == tomorrow_str
-
-    @staticmethod
-    def _extract_event_date(event_start):
-        try:
-            event_time = datetime.datetime.fromisoformat(event_start.replace("Z", "+00:00"))
-            return event_time.astimezone().strftime('%Y-%m-%d')
-        except ValueError:
-            return event_start
+        return [event for event in events if is_event_on(event, tomorrow_str)]
 
     def get_led_state(self) -> Dict:
         """

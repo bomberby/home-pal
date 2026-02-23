@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cam — {{ device_id }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      background: #{{ bg }};
+      font-family: 'Inter', Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    .cam-widget {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cam-img {
+      width: 100%;
+      flex: 1 1 0;
+      min-height: 0;
+      object-fit: cover;
+      display: block;
+      transition: opacity 0.4s ease;
+    }
+
+    .cam-footer {
+      flex-shrink: 0;
+      padding: 5px 10px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .cam-stale-overlay {
+      position: absolute;
+      inset: 0;
+      bottom: 22px; /* above footer */
+      background: rgba(0,0,0,0.6);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: rgba(255,255,255,0.55);
+    }
+
+    .cam-stale-icon  { font-size: 2rem; }
+    .cam-stale-label { font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <div class="cam-widget">
+    <img class="cam-img" id="cam-img" alt="{{ device_id }}">
+    <div class="cam-footer">
+      <span>{{ device_id }}</span>
+      <span id="cam-timestamp">—</span>
+    </div>
+    <div class="cam-stale-overlay" id="cam-stale-overlay">
+      <span class="cam-stale-icon">📷</span>
+      <span class="cam-stale-label" id="cam-stale-label">No signal</span>
+    </div>
+  </div>
+
+  <script>
+    const DEVICE_ID = {{ device_id | tojson }};
+    const REFRESH_MS = 30000;
+
+    function formatAge(s) {
+      if (s < 60) return s + 's';
+      if (s < 3600) return Math.round(s / 60) + 'm';
+      return Math.round(s / 3600) + 'h';
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(`/cam/${DEVICE_ID}/status`);
+        const info = await res.json();
+        const img = document.getElementById('cam-img');
+        const overlay = document.getElementById('cam-stale-overlay');
+        const staleLabel = document.getElementById('cam-stale-label');
+        const ts = document.getElementById('cam-timestamp');
+
+        if (info.stale) {
+          overlay.style.display = 'flex';
+          const age = info.last_updated_seconds_ago != null ? formatAge(info.last_updated_seconds_ago) : null;
+          staleLabel.textContent = age ? `Last seen ${age} ago` : 'No image received';
+          ts.textContent = age ? `Last seen ${age} ago` : '—';
+        } else {
+          overlay.style.display = 'none';
+          // Cache-bust only when image changes (keyed on age rounded to refresh interval)
+          const newSrc = `/cam/${DEVICE_ID}/image?t=${info.last_updated_seconds_ago}`;
+          if (img.dataset.src !== newSrc) {
+            img.dataset.src = newSrc;
+            img.style.opacity = '0';
+            img.onload = () => { img.style.opacity = '1'; };
+            img.src = newSrc;
+          }
+          ts.textContent = formatAge(info.last_updated_seconds_ago) + ' ago';
+        }
+      } catch (e) {
+        console.error('[CamWidget] error:', e);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
+</body>
+</html>

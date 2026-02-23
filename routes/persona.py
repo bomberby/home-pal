@@ -12,14 +12,15 @@ def get_persona():
     state_data = PersonaAgent.get_current_state()
     state = state_data['state']
     if state == 'absent':
-        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'generating': False})
+        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None, 'generating': False})
     cached = ImageGenService.get_cached(state)
     quote = state_data.get('quote', '')
+    suggestion = state_data.get('suggestion')
     if cached:
-        return jsonify({'state': state, 'image_url': f'/persona/image/{state}', 'quote': quote, 'generating': False})
+        return jsonify({'state': state, 'image_url': f'/persona/image/{state}', 'quote': quote, 'suggestion': suggestion, 'generating': False})
     if state not in ImageGenService._in_progress:
         threading.Thread(target=ImageGenService.generate, args=(state, state_data['prompt']), daemon=True).start()
-    return jsonify({'state': state, 'image_url': None, 'quote': quote, 'generating': True})
+    return jsonify({'state': state, 'image_url': None, 'quote': quote, 'suggestion': suggestion, 'generating': True})
 
 
 @persona_bp.route('/persona/widget')
