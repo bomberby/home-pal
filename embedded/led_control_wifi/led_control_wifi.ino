@@ -27,10 +27,13 @@ int cometPos[NUM_LEDS] = {0};    // comet head position per indicator key
 
 StaticJsonDocument<4096> sharedDoc;  // store the latest indicator JSON
 SemaphoreHandle_t ledDocMutex;       // protects sharedDoc
+SemaphoreHandle_t mqttMutex;         // protects mqttClient across main loop and BLE task
 TaskHandle_t ledTaskHandle = nullptr;
 volatile bool ledTaskStopRequested = false;
 
 IPAddress serverIP;  // cached — resolved once, re-resolved only on failure
+volatile unsigned long serverUnreachableSince = 0;  // millis() of first consecutive failure; 0 = OK
+#define SERVER_UNREACHABLE_THRESHOLD_MS 60000       // 1 minute before showing indicator
 
 bool resolveServer() {
   serverIP = MDNS.queryHost(SERVER_HOST);
@@ -52,12 +55,18 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT); // Debug led
 
   ledDocMutex = xSemaphoreCreateMutex();
+  mqttMutex   = xSemaphoreCreateMutex();
 
   // ---- CONNECT TO WIFI ----
   Serial.println("Connecting to WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
+  unsigned long wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - wifiStart > 20000) {
+      Serial.println("\n[WiFi] Timed out — restarting");
+      ESP.restart();
+    }
     delay(300);
     Serial.print(".");
   }
@@ -75,13 +84,20 @@ void loop() {
     delay(5000);
     if (WiFi.status() != WL_CONNECTED) return;
     Serial.println("[WiFi] Reconnected");
-    serverIP = INADDR_NONE;  // force mDNS re-resolve after reconnect
+    MDNS.begin("esp32-led");  // restart mDNS after reconnect
+    serverIP = INADDR_NONE;   // force re-resolve
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    if (serverIP == INADDR_NONE) resolveServer();
+  if (serverIP == INADDR_NONE && !resolveServer()) {
+    // Can't reach server — mark as unreachable and skip HTTP this cycle
+    if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+    pumpMQTT(5000);
+    return;
+  }
 
+  {
     HTTPClient http;
+    http.setTimeout(3000);
     digitalWrite(LED_BUILTIN, HIGH);
     String url = "http://" + serverIP.toString() + ":" + SERVER_PORT + url_path;
     http.begin(url);
@@ -89,6 +105,7 @@ void loop() {
     digitalWrite(LED_BUILTIN, LOW);
 
     if (httpCode == 200) {   // OK
+      serverUnreachableSince = 0;  // server is reachable — reset error window
       String payload = http.getString();
       // Serial.println("Received:");
       // Serial.println(payload);
@@ -103,8 +120,8 @@ void loop() {
         if (ledState) {
           String mode = doc["mode"];
           if (mode=="rainbow") {
-            startRainbow();
             stopIndicatorModeTask();
+            startRainbow();
           }
           else {
             stopRainbow();
@@ -128,18 +145,13 @@ void loop() {
     else {
       Serial.printf("[HTTP] Error %d — clearing cached IP for re-resolve\n", httpCode);
       serverIP = INADDR_NONE;
+      if (serverUnreachableSince == 0) serverUnreachableSince = millis();
     }
-
-    if (!mqttClient.connected()) {
-      reconnectMQTT();
-    }
-    mqttClient.loop();
-
 
     http.end();
   }
 
-  delay(5000); // Check every 5 seconds
+  pumpMQTT(5000);  // wait for next poll cycle, keeping MQTT alive
 }
 
 // ------------------- LED CONTROL -------------------
@@ -265,8 +277,6 @@ void stopIndicatorModeTask() {
 
 // Call this method when mode == "indicator_mode"
 void handleIndicatorMode(JsonDocument& doc) {
-    bool activated = doc["activated"] | false;
-
     JsonArray indicators = doc["indicators"];
 
     for (int i = 0; i < NUM_LEDS; i++) {
@@ -337,13 +347,20 @@ void handleIndicatorMode(JsonDocument& doc) {
         }
     }
 
-    // Status LED 56 — composited last so it's never overwritten by indicator data
-    if (WiFi.status() == WL_CONNECTED) {
-        strip.setPixelColor(56, strip.Color(0, 0, 15));  // dim blue: connected
-    } else {
+    // Status LEDs — composited last so they're never overwritten by indicator data
+    // LED 56: WiFi / server reachability
+    if (WiFi.status() != WL_CONNECTED) {
         float factor = (sin(millis() / 1000.0f) + 1.0f) / 2.0f;  // 1-second pulse
-        strip.setPixelColor(56, strip.Color((int)(factor * 200), 0, 0));  // red pulse: disconnected
+        strip.setPixelColor(56, strip.Color((int)(factor * 200), 0, 0));  // red pulse: no WiFi
+    } else if (serverUnreachableSince != 0 &&
+               millis() - serverUnreachableSince >= SERVER_UNREACHABLE_THRESHOLD_MS) {
+        float factor = (sin(millis() / 2000.0f) + 1.0f) / 2.0f;  // 2-second pulse
+        strip.setPixelColor(56, strip.Color((int)(factor * 220), (int)(factor * 80), 0));  // orange pulse: server down
+    } else {
+        strip.setPixelColor(56, strip.Color(0, 0, 15));  // dim blue: all OK
     }
+    // LED 58: MQTT connection (dim blue = connected, dim amber = disconnected)
+    strip.setPixelColor(58, mqttClient.connected() ? strip.Color(0, 0, 15) : strip.Color(20, 8, 0));
 
     strip.show();
 }
@@ -359,7 +376,7 @@ void applyAnimations(
     unsigned long now = millis();
 
     for (JsonObject anim : animations) {
-        const char* type = anim["type"];
+        const char* type = anim["type"] | "";
         int ar = anim["color"][0];
         int ag = anim["color"][1];
         int ab = anim["color"][2];
@@ -459,13 +476,27 @@ void applyComet(JsonArray leds, int keyIndex, JsonObject anim) {
 
 void turnOffLEDs() {
   strip.clear();
-  for (int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, 0); // Off
-  }
   strip.show();
 }
 
 
+
+// Pump MQTT for durationMs, yielding every 500ms so the BLE task can publish.
+// reconnectMQTT() is called outside the mutex: connect() busy-waits up to 15s
+// for CONNACK, and holding the mutex that long starves lwIP packet processing
+// on the single-core ESP32-C6. Safe because sendHealthAndRSSI checks connected()
+// first and skips publish while a connect is in progress.
+void pumpMQTT(uint32_t durationMs) {
+  unsigned long end = millis() + durationMs;
+  while (millis() < end) {
+    if (!mqttClient.connected()) reconnectMQTT();  // outside mutex — may block 15s
+    if (xSemaphoreTake(mqttMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+      mqttClient.loop();
+      xSemaphoreGive(mqttMutex);
+    }
+    delay(500);
+  }
+}
 
 void reconnectMQTT() {
   if (mqttClient.connected()) return;

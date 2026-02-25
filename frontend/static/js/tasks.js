@@ -138,4 +138,4 @@ document.getElementById('new-task').addEventListener('keydown', function(event) 
         addTask();
     }
 });
-window.window.addEventListener("load",initiateTasks);
+window.addEventListener("load",initiateTasks);

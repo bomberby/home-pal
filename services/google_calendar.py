@@ -2,11 +2,26 @@ from google_auth_oauthlib.flow import Flow
 from flask import Blueprint, request, session, redirect, url_for, jsonify
 from google.auth.credentials import Credentials
 import os
+import json
 import pickle
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 import requests
 from cache import cache
+
+CALENDAR_COLORS_PATH = os.path.join('env', 'calendar_colors.json')
+_DEFAULT_CALENDAR_COLOR = '#FCBA03'
+
+def _load_calendar_colors() -> dict:
+    """Load calendar_id → {color, purpose} mapping from env/calendar_colors.json."""
+    try:
+        with open(CALENDAR_COLORS_PATH) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"[Calendar] Could not read {CALENDAR_COLORS_PATH}: {e}")
+        return {}
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 REDIRECT_URI = f'http://127.0.0.1:5000/oauth/oauth2callback'
@@ -42,7 +57,7 @@ def oauth2callback():
     with open('token.pickle', 'wb') as token:
         pickle.dump(credentials, token)
 
-    return redirect(url_for('index'))
+    return redirect(url_for('main.index'))
 
 @google_calendar.route('/oauth/logout')
 def logout():
@@ -68,16 +83,28 @@ def get_all_events():
     calendars = calendar_list.get('items', [])
     
     all_events = []
-    calendar_indices = {calendar['id']: index for index, calendar in enumerate(calendars)}
-    
+    color_config = _load_calendar_colors()
+
     for calendar in calendars:
-        events_result = service.events().list(calendarId=calendar['id'], maxResults=10, singleEvents=True,
+        cal_id   = calendar['id']
+        cal_name = calendar.get('summary', cal_id)
+        cfg      = color_config.get(cal_id, {})
+        if not cfg:
+            print(f"[Calendar] Unconfigured calendar — add to calendar_colors.json: '{cal_id}' ({cal_name})")
+
+        events_result = service.events().list(calendarId=cal_id, maxResults=10, singleEvents=True,
                                                 orderBy='startTime',
                                                 timeMin=today.isoformat() + 'T00:00:00Z',
                                                 timeMax=one_year_from_now.isoformat() + 'T23:59:59Z').execute()
         events = events_result.get('items', [])
+        hex_color = cfg.get('color', _DEFAULT_CALENDAR_COLOR)
+        h = hex_color.lstrip('#')
+        rgb = [int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)]
         for event in events:
-            event['calendar_index'] = calendar_indices[calendar['id']]
+            event['calendar_id']        = cal_id
+            event['calendar_color']     = hex_color  # hex for frontend CSS
+            event['calendar_color_rgb'] = rgb         # [r,g,b] for LED / PIL
+            event['calendar_purpose']   = cfg.get('purpose', '')
             all_events.append(event)
     
 
@@ -91,6 +118,24 @@ def get_all_events():
         pickle.dump(credentials, token)
     return events
     
+@google_calendar.route('/calendar/list')
+def list_calendars():
+    """List all Google Calendars with their IDs — useful for populating calendar_colors.json."""
+    credentials = credentials_from_storage()
+    service = build('calendar', 'v3', credentials=credentials)
+    items = service.calendarList().list().execute().get('items', [])
+    color_config = _load_calendar_colors()
+    return jsonify([
+        {
+            'id':      c['id'],
+            'name':    c.get('summary', ''),
+            'color':   color_config.get(c['id'], {}).get('color',   _DEFAULT_CALENDAR_COLOR),
+            'purpose': color_config.get(c['id'], {}).get('purpose', ''),
+        }
+        for c in items
+    ])
+
+
 @google_calendar.route('/calendar/events')
 def get_calendar_events():
     events = get_all_events()

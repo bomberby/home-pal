@@ -1,7 +1,8 @@
+import json
 from flask import Blueprint, jsonify, request
 from models import WeatherData, WeatherLocation
 from config import Config
-from services.weather_service import get_cached_or_fetch
+from services.weather_service import get_cached_or_fetch, wmo_category
 
 weather_bp = Blueprint('weather', __name__)
 
@@ -13,6 +14,9 @@ def get_weather():
         if not locations:
             locations = [Config.WEATHER_LOCATION]
         weather_data_list = get_cached_or_fetch(locations)
+        for city_data in weather_data_list.values():
+            codes = json.loads(city_data.get('hourly_weathercodes', '[]'))
+            city_data['hourly_weather_categories'] = json.dumps([wmo_category(c) for c in codes])
         return jsonify(weather_data_list)
     except WeatherData.DoesNotExist:
         return jsonify({'error': 'Weather data not found'}), 404

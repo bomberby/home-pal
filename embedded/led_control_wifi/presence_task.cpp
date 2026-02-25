@@ -50,13 +50,11 @@ void bleTask(void * pvParameters) {
             Serial.println(uuidStr);
 
             // Compare with the target UUID (make sure targetBLEUUID is lowercase)
-            if (String(uuidStr) == BLE_UUID) {
+            if (String(uuidStr) == targetBLEUUID) {
               found = true;
               rssi = device.getRSSI();
-              if (mqttClient.connected()) {
-                sendHealthAndRSSI(rssi);
-              }
-              break; 
+              sendHealthAndRSSI(rssi);
+              break;
             }
           }
         }
@@ -104,25 +102,28 @@ float voltageToPercentage(float voltage) {
 }
 
 void sendHealthAndRSSI(int rssi) {
+    if (xSemaphoreTake(mqttMutex, pdMS_TO_TICKS(200)) != pdTRUE) return;
+    if (!mqttClient.connected()) {
+        xSemaphoreGive(mqttMutex);
+        return;
+    }
+
     StaticJsonDocument<200> doc;
     doc["rssi"] = rssi;
-    // doc["battery_v"] = voltage;
     doc["uptime"] = millis() / 1000;
 
     uint32_t Vbatt = 0;
     for(int i = 0; i < 16; i++) {
-      Vbatt += analogReadMilliVolts(A0); // Read and accumulate ADC voltage
+      Vbatt += analogReadMilliVolts(A0);
     }
-    float Vbattf = 2 * Vbatt / 16 / 1000.0;     // Adjust for 1:2 divider and convert to volts
+    float Vbattf = 2 * Vbatt / 16 / 1000.0;
     float vBatPercent = voltageToPercentage(Vbattf);
-    Serial.print(F("Battery voltage: "));
-    Serial.println(Vbattf, 3);                  // Output voltage to 3 decimal places
-    Serial.print(F("Battery Percent:"));
-    Serial.println(vBatPercent);
+    Serial.printf("Battery: %.3fV (%.1f%%)\n", Vbattf, vBatPercent);
     doc["battery_percentage"] = vBatPercent;
-
 
     char buffer[200];
     serializeJson(doc, buffer);
     mqttClient.publish("workroom/ble_scanner/esp_c6_leds/attributes", buffer);
+
+    xSemaphoreGive(mqttMutex);
 }

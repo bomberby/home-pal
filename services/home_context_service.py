@@ -8,6 +8,7 @@ import config
 SECRETS_PATH = os.path.join('env', 'secrets', 'mqtt.json')
 PRESENCE_TIMEOUT = 120      # seconds without update → consider away
 PRESENCE_ABSENT_RSSI = -95  # RSSI below this = not in range
+PRESENCE_HOME_CONFIRM = 60  # seconds RSSI must stay present before marking as arrived
 PRESENCE_AWAY_CONFIRM = 60  # seconds RSSI must stay absent before marking as away
 
 
@@ -31,9 +32,14 @@ class HomeContextService:
     _presence_rssi: int = -100
     _presence_battery: float | None = None
     _presence_updated: float = 0.0
-    _was_home: bool | None = None  # None = no data yet since startup
+    _was_home: bool | None = None   # None = no data yet since startup
+    _home_since: float | None = None  # timestamp when present state first seen
     _away_since: float | None = None  # timestamp when absent state first seen
     _welcome_until: float = 0.0
+
+    # Presence transition callbacks
+    _on_arrive_callbacks: list = []
+    _on_leave_callbacks: list = []
 
     # Air quality & indoor environment (from AIC topic)
     _voc: float | None = None
@@ -41,6 +47,14 @@ class HomeContextService:
     _indoor_temp: float | None = None
     _indoor_humidity: float | None = None
     _aic_updated: float = 0.0
+
+    @classmethod
+    def register_on_arrive(cls, fn):
+        cls._on_arrive_callbacks.append(fn)
+
+    @classmethod
+    def register_on_leave(cls, fn):
+        cls._on_leave_callbacks.append(fn)
 
     @classmethod
     def start(cls):
@@ -75,14 +89,23 @@ class HomeContextService:
                     is_now_home = cls.is_home()
                     if is_now_home:
                         cls._away_since = None  # reset absent timer on any home reading
-                        if cls._was_home is False:
-                            cls._welcome_until = time.time() + 120  # 2-minute welcome window
-                        cls._was_home = True
+                        if cls._home_since is None:
+                            cls._home_since = time.time()  # start counting presence
+                        if cls._was_home is not True and time.time() - cls._home_since >= PRESENCE_HOME_CONFIRM:
+                            if cls._was_home is False:  # confirmed away→home transition
+                                cls._welcome_until = time.time() + 120  # 2-minute welcome window
+                                for fn in cls._on_arrive_callbacks:
+                                    threading.Thread(target=fn, daemon=True).start()
+                            cls._was_home = True
                     else:
+                        cls._home_since = None  # reset present timer on any away reading
                         if cls._away_since is None:
                             cls._away_since = time.time()  # start counting absence
-                        elif time.time() - cls._away_since >= PRESENCE_AWAY_CONFIRM:
-                            cls._was_home = False  # confirmed away only after sustained absence
+                        if cls._was_home is not False and time.time() - cls._away_since >= PRESENCE_AWAY_CONFIRM:
+                            if cls._was_home is True:  # confirmed home→away transition
+                                for fn in cls._on_leave_callbacks:
+                                    threading.Thread(target=fn, daemon=True).start()
+                            cls._was_home = False
                 elif msg.topic == config.Config.AIC_TOPIC:
                     cls._aic_updated = time.time()
                     voc = data.get(config.Config.VOC_FIELD)
@@ -136,8 +159,19 @@ class HomeContextService:
         return time.time() < cls._welcome_until
 
     @classmethod
+    def air_quality(cls) -> str | None:
+        """Return 'good', 'poor', or 'alert' based on VOC index, or None if no data yet."""
+        if cls._voc is None:
+            return None
+        if cls._voc > config.Config.VOC_THRESHOLD:
+            return 'alert'
+        if cls._voc > config.Config.VOC_POOR_THRESHOLD:
+            return 'poor'
+        return 'good'
+
+    @classmethod
     def has_poor_air(cls) -> bool:
-        return cls._voc is not None and cls._voc > config.Config.VOC_THRESHOLD
+        return cls.air_quality() in ('poor', 'alert')
 
     @classmethod
     def indoor_discomfort(cls) -> str | None:

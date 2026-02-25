@@ -74,6 +74,20 @@ def _ensure_model():
         print(f"Ollama: model check/pull failed: {e}")
 
 
+def call_ollama(prompt: str, timeout: int = 10) -> str | None:
+    """POST a prompt to Ollama and return the stripped response text, or None on failure."""
+    try:
+        resp = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=timeout,
+        )
+        return resp.json().get("response", "").strip() or None
+    except Exception as e:
+        print(f"[Ollama] Call failed: {e}")
+        return None
+
+
 def _stop():
     if _process:
         _process.terminate()

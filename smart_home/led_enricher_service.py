@@ -189,16 +189,7 @@ class LedEnricherService:
             if current_and_future_events:
                 i = 0
                 for event in current_and_future_events[:5]:
-                    match event.get('calendar_index'):
-                        case 0:
-                            color = [200, 10, 10]
-                        case 5:
-                            color = [5, 240, 10]
-                        case 6:
-                            color = [30, 30, 220]
-                        case _:
-                            print('unexpected calendar', event.get('calendar_index'))
-                            color = [200, 200, 5]
+                    color = event.get('calendar_color_rgb', [200, 200, 5])
 
                     time_until = (parse_dt(event.get('start', {}).get('dateTime')) - now).total_seconds()
                     if time_until < 0 or time_until > 3600:

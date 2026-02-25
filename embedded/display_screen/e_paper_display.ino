@@ -41,8 +41,8 @@ const char* serverDevicePath = "/sh/weather_dashboard";
 // const char* serverWeatherUrl = "http://192.168.1.232:5000/weather";
 const char* serverWeatherPath = "/weather";
 const char* serverImagePath = "/image.bin";
-#define TIME_TO_SLEEP  30        // Minutes to sleep
-#define S_TO_uS_FACTOR 60000000ULL // Conversion factor for minutes to microseconds
+#define TIME_TO_SLEEP    30           // Minutes to sleep
+#define MIN_TO_uS_FACTOR 60000000ULL  // Conversion factor for minutes to microseconds
 
 #ifndef ZIGBEE_MODE_ED
 #error "Zigbee end device mode is not selected in Tools->Zigbee mode"
@@ -131,31 +131,37 @@ void setup() {
   // 4. Set Sleep Timer and Enter Deep Sleep
   Serial.println("Entering Deep Sleep...");
   digitalWrite(LED_BUILTIN, LOW); // LED OFF - Sleep starting
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * S_TO_uS_FACTOR);
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * MIN_TO_uS_FACTOR);
   esp_deep_sleep_start();
 }
 
 void loop() {}
 
 void performUpdate() {
-  HTTPClient http;
-  IPAddress serverIP;
-  String mode = "weather"; // Default
-
-  if (MDNS.begin("esp32-led")) { // Initialize mDNS
-    serverIP = MDNS.queryHost(url_host); // Note: No ".local" here
+  // Resolve once — shared by all requests this wake cycle
+  MDNS.begin("esp32-display");
+  IPAddress serverIP = MDNS.queryHost(url_host);
+  if (serverIP == INADDR_NONE) {
+    Serial.printf("[mDNS] Could not resolve %s — skipping update\n", url_host);
+    return;
   }
+
+  HTTPClient http;
+  String mode = "weather"; // Default
   String url = "http://" + serverIP.toString() + ":" + url_port + serverDevicePath;
   http.begin(url);
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    DynamicJsonDocument doc(24000); 
+    DynamicJsonDocument doc(24000);
     DeserializationError error = deserializeJson(doc, payload);
     if (!error) {
       JsonObject root = doc.as<JsonObject>();
-      // TODO: do not render any display if turned off
-      // root["activated"]
+      if (!root["activated"].as<bool>()) {
+        Serial.println(F("Display deactivated — skipping render"));
+        http.end();
+        return;
+      }
       mode = (String)root["mode"];
       std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
       Serial.print(F("Set display mode to:"));
@@ -168,19 +174,17 @@ void performUpdate() {
     String image_url = "http://" + serverIP.toString() + ":" + url_port + serverImagePath;
     drawRemoteImage(image_url);
   } else if (mode == "weather") {
-    performWeatherUpdate();
+    performWeatherUpdate(serverIP);
+  } else if (mode == "daily") {
+    String daily_url = "http://" + serverIP.toString() + ":" + url_port + "/eink/daily";
+    drawRemoteImage(daily_url);
   } else {
-    performWeatherUpdate();
+    performWeatherUpdate(serverIP);
   }
 }
 
-void performWeatherUpdate() {
+void performWeatherUpdate(IPAddress serverIP) {
   HTTPClient http;
-  IPAddress serverIP;
-
-  if (MDNS.begin("esp32-led")) { // Initialize mDNS
-    serverIP = MDNS.queryHost(url_host); // Note: No ".local" here
-  }
   String url = "http://" + serverIP.toString() + ":" + url_port + serverWeatherPath;
   http.begin(url);
   int httpCode = http.GET();
@@ -203,12 +207,13 @@ void performWeatherUpdate() {
 
       const char* firstTimeStr = cityData["first_time"];
       const char* lastUpdateStr = cityData["last_updated"];
-      float temps[168], precips[168];
-      
+      float temps[168], precips[168], weathercategories[168];
+
       int tCount = parseJsonArrayString(cityData["hourly_temperatures"], temps, 168);
       int pCount = parseJsonArrayString(cityData["hourly_precipitation"], precips, 168);
+      parseJsonArrayString(cityData["hourly_weather_categories"], weathercategories, 168);
 
-      renderWeather(cityName.c_str(), firstTimeStr, lastUpdateStr, temps, precips, tCount);
+      renderWeather(cityName.c_str(), firstTimeStr, lastUpdateStr, temps, precips, weathercategories, tCount);
     }
   }
   http.end();
@@ -237,10 +242,15 @@ void drawRemoteImage(String url) {
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
     Serial.println(F("Getting image stream"));
-    int len = http.getSize(); // Should be 192,000 bytes for 800x480 color, or 
+    int len = http.getSize(); // Should be 192,000 bytes for 800x480 color, or
+    if (len <= 0) {
+      Serial.printf("[Image] Invalid content length: %d — aborting\n", len);
+      http.end();
+      return;
+    }
     WiFiClient* stream = http.getStreamPtr();
 
-    
+
     // Allocate a temporary buffer for the image
     // 192KB fits in C6 RAM, but we use psram if available or static allocation
     uint8_t* imageBuffer = (uint8_t*)malloc(len);
@@ -282,7 +292,7 @@ void storeBatteryMeasurment()
   if (isExternalPower) {
     currentMetrics.batteryPercent = 101; // Special flag for "External Power"
   } else {
-    currentMetrics.batteryPercent = constrain((int)((currentMetrics.batteryVoltage - 3.3) * 100 / (4.2 - 3.3)), 0, 100);
+    currentMetrics.batteryPercent = constrain((int)((currentMetrics.batteryVoltage - 3.0) * 100 / (4.2 - 3.0)), 0, 100);
   }
   Serial.print("Raw Number: ");
   Serial.print(raw);
@@ -297,6 +307,9 @@ void storeBatteryMeasurment()
  * Handles initialization, stabilization, and reading of SGP41.
  */
 void performAirQualityMeasurement(float &vocResult, float &noxResult) {
+    vocResult = 0.0;
+    noxResult = 0.0;
+
     sgp41.begin(Wire);
 
     // preferences.clear();

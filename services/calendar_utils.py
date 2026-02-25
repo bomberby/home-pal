@@ -24,3 +24,18 @@ def event_date(event: dict) -> str | None:
 def is_event_on(event: dict, date_str: str) -> bool:
     """Return True if the event falls on the given local date (YYYY-MM-DD)."""
     return event_date(event) == date_str
+
+
+def event_label(event: dict) -> str:
+    """Return a human-readable label for a calendar event.
+
+    Uses the event summary when available. For untitled events from a work
+    calendar, returns 'work meeting' so the LLM has useful context rather than
+    '(untitled event)'. Work calendars frequently omit titles for privacy.
+    """
+    summary = (event.get('summary') or '').strip()
+    if summary:
+        return summary
+    if event.get('calendar_purpose') == 'work':
+        return 'work meeting'
+    return '(untitled event)'

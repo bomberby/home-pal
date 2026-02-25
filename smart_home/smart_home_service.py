@@ -23,7 +23,6 @@ def get_device(name):
     try:
         device = SmartHomeDevice.get(SmartHomeDevice.name == name)
     except SmartHomeDevice.DoesNotExist:
-        print('creating device')
         device = create_device(name)
     return device
 

@@ -6,24 +6,29 @@ deleting all cached images in tmp/persona/.
 """
 
 CHARACTER_PREFIX = (
-    "anime illustration, young woman, dark navy blue hair in a loose side braid, "
+    "anime illustration, (portrait:1.3), upper body, young woman, dark navy blue hair in a loose side braid, "
     "warm amber eyes, soft facial features, visual novel art style, high quality, detailed"
 )
 
 MOOD_MODIFIERS = {
-    "cheerful":  "bright smile, cheerful expression, upbeat posture",
-    "content":   "soft smile, relaxed expression, comfortable posture",
-    "dreamy":    "soft half-smile, gently unfocused gaze, relaxed dreamy expression",
-    "tired":     "heavy-lidded eyes, drowsy expression, slightly slouched",
-    "resigned":  "slight pout, wry resigned expression, head tilted",
-    "flustered": "flushed cheeks, wide eyes, flustered expression",
-    "focused":   "concentrated expression, focused eyes, attentive upright posture",
-    "worried":   "furrowed brow, anxious expression, tense posture",
+    "cheerful":   "bright wide smile, (sparkling happy eyes:1.1), light upright posture",
+    "content":    "soft smile, relaxed expression, comfortable posture",
+    "dreamy":     "chin resting on hand, gazing upward, whimsical faraway expression, gently parted lips",
+    "tired":      "(half-closed heavy eyelids:1.3), (dark circles under eyes:1.2), head drooping forward, shoulders slumped, mouth slightly open, dazed vacant expression",
+    "resigned":   "slight pout, wry resigned expression, head tilted",
+    "flustered":  "(flushed red cheeks:1.2), wide startled eyes, mouth slightly open, flustered nervous look",
+    "focused":    "slightly furrowed brow, sharp narrowed eyes, lips pressed together, upright attentive posture",
+    "worried":    "(furrowed brow:1.2), anxious downcast eyes, tense raised shoulders, lip slightly bitten",
+    "excited":    "wide sparkling eyes, big energetic smile, leaning forward eagerly",
+    "furious":    "(intense murderous glare:1.5), (bared clenched teeth:1.3), trembling with rage, hold a blood-dripping knife raised overhead, crazed wild expression",
+    "annoyed":    "slight frown, arms crossed, exasperated sidelong glance",
+    "melancholy": "(downcast eyes:1.2), faint trembling lip, withdrawn hunched posture, vacant sad expression",
+    "smug":       "confident smirk, one eyebrow raised, self-satisfied composed posture",
 }
 
 STATES = {
     "heavy_rain": {
-        "prompt": "standing under a large red umbrella in heavy rain, puddles reflecting street lights",
+        "prompt": "standing under a large red umbrella in heavy rain, wet pavement, puddles on the ground",
         "quote": "Well... at least the plants are happy.",
         "mood": "resigned",
     },
@@ -40,11 +45,17 @@ STATES = {
     },
     "freezing": {
         "prompt": "shivering in an oversized winter coat, cold breath visible, frost on the ground",
+        "prompt_overrides": {
+            "late_night": "sitting on a sofa wrapped in a thick blanket, cold night visible through the window",
+        },
         "quote": "C-cold... why is it SO cold?!",
         "mood": "flustered",
     },
     "cold": {
         "prompt": "wearing a cosy knit sweater and scarf, autumn leaves in the background",
+        "prompt_overrides": {
+            "late_night": "sitting indoors wrapped in a soft knit blanket and scarf, cold night outside the window",
+        },
         "quote": "Hot chocolate weather. Definitely.",
         "mood": "resigned",
         "mood_overrides": {"morning": "tired", "late_night": "dreamy"},
@@ -70,6 +81,7 @@ STATES = {
     "hot": {
         "prompt": "fanning herself sitting under a palm tree, bright sunny sky, iced drink nearby",
         "prompt_overrides": {
+            "evening": "sitting on an outdoor terrace fanning herself, iced drink on the table, warm summer evening breeze",
             "late_night": "sitting near an open window fanning herself, iced drink on the table, warm stuffy night",
         },
         "quote": "This heat is absolutely unacceptable.",
@@ -87,7 +99,7 @@ TIME_PERIODS = {
         "quote": None,  # fall through to weather-state quote
     },
     "evening": {
-        "prompt_suffix": "warm evening glow, sunset colours",
+        "prompt_suffix": "golden hour, sun low at the horizon, warm amber-orange sky, long soft shadows, dimming light",
         "quote": "Almost time to wind down.",
     },
     "night": {
@@ -107,7 +119,7 @@ CALENDAR_STATES = {
         "mood": "focused",
     },
     "meeting_soon": {
-        "prompt": "standing beside a desk with a closed notebook and papers, one hand resting on the desk with fingers relaxed, glancing urgently at a wall clock",
+        "prompt": "standing at a tidy desk, one hand resting flat on the desk surface, glancing urgently at a wall clock",
         "quote": "Meeting in a few minutes. Better get ready!",
         "mood": "flustered",
     },
@@ -140,7 +152,7 @@ CONTEXT_STATES = {
         "mood": "resigned",
     },
     "hub_offline": {
-        "prompt": "sitting at a desk, staring at a dark unresponsive smart home panel with a puzzled and slightly worried expression",
+        "prompt": "standing in front of a wall-mounted smart home panel, (turned off monitors:1.4), (dark warning light:1.3), surrounding devices all silent and unresponsive, arms at sides",
         "quote": "Something's not responding... is the hub down?",
         "situation": "the smart home hub is offline and nothing is responding",
         "mood": "worried",
@@ -286,34 +298,3 @@ SITUATION_LABELS = {
     "hot": "scorching hot",
 }
 
-# WMO Weather interpretation codes returned by Open-Meteo
-WMO_LABELS = {
-    0:  "clear sky",
-    1:  "mainly clear",
-    2:  "partly cloudy",
-    3:  "overcast",
-    45: "foggy",
-    48: "foggy",
-    51: "light drizzle",
-    53: "drizzle",
-    55: "heavy drizzle",
-    56: "freezing drizzle",
-    57: "heavy freezing drizzle",
-    61: "light rain",
-    63: "moderate rain",
-    65: "heavy rain",
-    66: "freezing rain",
-    67: "heavy freezing rain",
-    71: "light snow",
-    73: "moderate snow",
-    75: "heavy snow",
-    77: "snow grains",
-    80: "light showers",
-    81: "moderate showers",
-    82: "heavy showers",
-    85: "snow showers",
-    86: "heavy snow showers",
-    95: "thunderstorm",
-    96: "thunderstorm with hail",
-    99: "thunderstorm with heavy hail",
-}

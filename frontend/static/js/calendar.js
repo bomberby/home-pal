@@ -30,36 +30,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Mapping of calendar IDs to colors
-    const calendarColors = {
-        0: '#FF5733',
-        3: '#33FF57',
-        4: '#FF3357',
-        5: '#3357FF',
-        6: '#573357',
-        'holiday': 'rgb(93, 181, 197)'
-        
-        // Add more mappings as needed
-    };
-    
     function displayCalendarEvents(events) {
         loginButton.style.display = 'none';
         calendarEventsList.innerHTML = '';
         events.forEach(event => {
             const li = document.createElement('li');
             li.className = 'calendar-event';
-    
-            // Apply color based on the calendar ID
-            if (event.organizer && event.organizer.email) {
-                const calendarId = event.organizer.email.split('@')[0];
-                color = '#f9f9f9'
-                if (calendarId.split('#')[1] == 'holiday') {
-                    color = calendarColors['holiday']
-                } else if (calendarColors[event.calendar_index]) {
-                    color = calendarColors[event.calendar_index]
-                }
-                li.style.backgroundColor = color;
-            }
+            li.style.backgroundColor = event.calendar_color || '#f9f9f9';
     
             if (event.start.dateTime) {
                 const startDate = new Date(event.start.dateTime);

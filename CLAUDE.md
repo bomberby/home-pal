@@ -40,11 +40,12 @@ pip install -r requirements.txt
 | `weather_service.py` | Fetches from Open-Meteo API; caches in SQLite (1h TTL). `get_default_location()` returns the is_default location or falls back to `Config.WEATHER_LOCATION`. |
 | `train_scrape_service.py` | Scrapes JR East timetable HTML with BeautifulSoup; auto-selects weekday vs weekend. |
 | `google_calendar.py` | Google Calendar OAuth2 Blueprint. Credentials in `token.pickle`. `get_all_events()` fetches all calendars (`@cache.memoize` 1h). |
-| `tts_service.py` | Coqui TTS (`tts_models/en/vctk/vits`), initialized once at module load. Returns WAV as BytesIO. |
+| `tts_service.py` | Kokoro TTS (active backend). Lazily initialised. `TTS_BACKEND` constant at top switches between `'kokoro'` and `'coqui'`. Returns WAV as BytesIO. |
 | `image_gen_service.py` | Stable Diffusion (`Lykon/dreamshaper-8`). Lazy-loads pipeline on first call. Caches images at `tmp/persona/{state}.png`. Uses `_in_progress: set[str]` to prevent duplicate generation threads. Fixed seed 42 for character consistency. |
 | `ollama_service.py` | Starts `ollama serve` as a managed subprocess, waits for it to be ready, then pulls `OLLAMA_MODEL` if not already downloaded. Defines `OLLAMA_BASE_URL` and `OLLAMA_MODEL` — import these rather than redefining them. |
 | `image_dither.py` | Dithers dashboard screenshot to 1-bit BMP for the e-ink display. |
-| `smart_home_service.py` | CRUD for `SmartHomeDevice`. The `led` device is enriched by `LedEnricherService` before returning. |
+| `calendar_utils.py` | Shared calendar helpers: `parse_dt(iso_string)` (handles Z suffix), `event_date(event)`, `is_event_on(event, date_str)`. Use `parse_dt` instead of inline `fromisoformat(s.replace('Z', '+00:00'))`. |
+| `home_context_service.py` | MQTT client for presence (BLE RSSI) and air quality (VOC, NOx, temp, humidity). Drives `is_home()`, `is_just_arrived()`, `has_poor_air()`, `indoor_discomfort()`. |
 
 ### Agents (`agents/`)
 
@@ -57,8 +58,9 @@ pip install -r requirements.txt
 
 Priority chain (highest first): `hub_offline` → `absent` → `welcome_{period}` → `poor_air` → `indoor_discomfort` → holiday → `in_meeting` / `meeting_soon` → `{weather}_{period}`.
 
-State key format: `{weather}_{time_period}` e.g. `cold_evening`; `welcome_{time_period}` e.g. `welcome_night`; fixed keys for overrides.
+State key format: `{weather}_{time_period}_{mood}` e.g. `cold_evening_tired`; `welcome_{time_period}_{mood}`; `{override}_{mood}` for fixed states. Mood is resolved by `_get_mood(state_data, period)` from `mood_overrides[period]` → `mood` → `"content"`.
 `CHARACTER_PREFIX` in `persona_states.py` + fixed seed 42 are the SD consistency anchors — changing either requires deleting all cached images in `tmp/persona/`.
+`_make_response()` is the single builder for all persona state responses — mood, state key, prompt, quote, and suggestion all flow through it.
 
 MQTT presence + air quality: `services/home_context_service.py`. Config in `config.py`; credentials in `env/secrets/mqtt.json`.
 
@@ -80,8 +82,10 @@ MQTT presence + air quality: `services/home_context_service.py`. Config in `conf
 
 ## Key conventions
 
-- All new routes belong in `routes.py` inside `init_routes(app)`.
+- Routes live as Flask Blueprints in `routes/<area>.py`. Register new blueprints in `routes/__init__.py` inside `init_routes(app)`.
 - New DB models go in `models.py`; add to the `create_tables([...])` call at the bottom.
 - Use `@cache.memoize()` (not `@cache.cached`) for any function that is not a Flask view.
 - Import `OLLAMA_BASE_URL` and `OLLAMA_MODEL` from `services/ollama_service.py` — do not redefine them.
+- Use `parse_dt()` from `services/calendar_utils.py` for all ISO datetime parsing — never write `fromisoformat(s.replace('Z', '+00:00'))` inline.
+- One-time DB migrations (`ALTER TABLE`) must be removed from `models.py` after they have run. They are not idempotent in intent, only in effect.
 - To force persona image regeneration: delete `tmp/persona/` and refresh the dashboard.

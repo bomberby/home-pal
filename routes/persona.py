@@ -1,5 +1,4 @@
 import re
-import threading
 from flask import Blueprint, jsonify, send_file, render_template, request
 from agents.persona_agent import PersonaAgent
 from services.image_gen_service import ImageGenService
@@ -13,14 +12,11 @@ def get_persona():
     state = state_data['state']
     if state == 'absent':
         return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None, 'generating': False})
-    cached = ImageGenService.get_cached(state)
     quote = state_data.get('quote', '')
     suggestion = state_data.get('suggestion')
-    if cached:
-        return jsonify({'state': state, 'image_url': f'/persona/image/{state}', 'quote': quote, 'suggestion': suggestion, 'generating': False})
-    if state not in ImageGenService._in_progress:
-        threading.Thread(target=ImageGenService.generate, args=(state, state_data['prompt']), daemon=True).start()
-    return jsonify({'state': state, 'image_url': None, 'quote': quote, 'suggestion': suggestion, 'generating': True})
+    image_path, generating = PersonaAgent.get_state_image(state, state_data['prompt'])
+    image_url = f'/persona/image/{state}' if image_path else None
+    return jsonify({'state': state, 'image_url': image_url, 'quote': quote, 'suggestion': suggestion, 'generating': generating})
 
 
 @persona_bp.route('/persona/widget')
@@ -39,3 +35,30 @@ def get_persona_image(state):
     if not path:
         return jsonify({'error': 'Image not yet generated'}), 404
     return send_file(path, mimetype='image/png')
+
+
+# ------------------------------------------------------------------ #
+#  Memory management endpoints                                         #
+# ------------------------------------------------------------------ #
+
+@persona_bp.route('/persona/memories', methods=['GET'])
+def get_memories():
+    from services.memory_service import MemoryService
+    return jsonify(MemoryService.get_all())
+
+
+@persona_bp.route('/persona/memories/<int:index>', methods=['DELETE'])
+def delete_memory(index):
+    from services.memory_service import MemoryService
+    try:
+        MemoryService.remove_at(index)
+        return jsonify({"ok": True})
+    except IndexError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@persona_bp.route('/persona/memories', methods=['DELETE'])
+def clear_memories():
+    from services.memory_service import MemoryService
+    MemoryService.clear()
+    return jsonify({"ok": True})

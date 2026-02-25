@@ -38,6 +38,33 @@ def dither_image():
   quantized.save("tmp/differed.bmp")
   return quantized
 
+def dither_pil_image(img):
+    """Dither a PIL RGB image to the 7-color ACeP palette and return packed bytes (192000 bytes for 800×480)."""
+    acep_palette = [
+        0, 0, 0,        # 0: Black
+        255, 255, 255,  # 1: White
+        0, 255, 0,      # 2: Green
+        0, 0, 255,      # 3: Blue
+        255, 0, 0,      # 4: Red
+        200, 200, 0,    # 5: Yellow
+        255, 165, 0     # 6: Orange
+    ] + [0] * (256 * 3 - 21)
+
+    p_img = Image.new("P", (1, 1))
+    p_img.putpalette(acep_palette)
+
+    img = img.convert("RGB").resize((800, 480))
+    img = ImageEnhance.Color(img).enhance(1.2)
+    img = ImageEnhance.Contrast(img).enhance(1.2)
+    quantized = img.quantize(palette=p_img, dither=Image.FLOYDSTEINBERG)
+
+    pixels = list(quantized.getdata())
+    packed_bytes = bytearray()
+    for i in range(0, len(pixels), 2):
+        packed_bytes.append(((pixels[i] & 0x0F) << 4) | (pixels[i + 1] & 0x0F))
+    return bytes(packed_bytes)
+
+
 def dither_bw_image():
   # Load and Resize to 800x480
   img = Image.open("tmp/IMG_3060.jpg").convert("RGB").resize((800, 480))

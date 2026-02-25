@@ -11,7 +11,7 @@
 #define GxEPD2_DRIVER_CLASS GxEPD2_730c_ACeP_730
 
 
-void renderWeather(const char* city, const char* firstTimeIso, const char* lastUpdateStr, float* temps, float* precips, int count);
+void renderWeather(const char* city, const char* firstTimeIso, const char* lastUpdateStr, float* temps, float* precips, float* weathercategories, int count);
 void renderBatteryStatus(int x, int y);
 void hibernateDisplay();
 void renderBwFromBuffer(uint8_t* imageBuffer);

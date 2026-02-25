@@ -7,6 +7,95 @@ import json
 
 CACHE_DURATION = 3600
 
+# WMO Weather interpretation codes — https://open-meteo.com/en/docs
+_WMO_DESCRIPTIONS = {
+    0:  "clear sky",
+    1:  "mainly clear",
+    2:  "partly cloudy",
+    3:  "overcast",
+    45: "foggy",
+    48: "foggy",
+    51: "light drizzle",
+    53: "drizzle",
+    55: "heavy drizzle",
+    56: "freezing drizzle",
+    57: "heavy freezing drizzle",
+    61: "light rain",
+    63: "moderate rain",
+    65: "heavy rain",
+    66: "freezing rain",
+    67: "heavy freezing rain",
+    71: "light snow",
+    73: "moderate snow",
+    75: "heavy snow",
+    77: "snow grains",
+    80: "light showers",
+    81: "moderate showers",
+    82: "heavy showers",
+    85: "snow showers",
+    86: "heavy snow showers",
+    95: "thunderstorm",
+    96: "thunderstorm with hail",
+    99: "thunderstorm with heavy hail",
+}
+
+def wmo_description(code: int) -> str:
+    """Full human-readable WMO weather condition (e.g. 'light rain')."""
+    return _WMO_DESCRIPTIONS.get(int(code), "")
+
+def wmo_label(code: int) -> str:
+    """Short display label for space-constrained contexts (e.g. e-ink display)."""
+    code = int(code)
+    if code == 0:                                                return "Sun"
+    if code <= 2:                                                return "P.Cld"
+    if code == 3:                                                return "Cloudy"
+    if code in (45, 48):                                         return "Fog"
+    if 51 <= code <= 57:                                         return "Drzl"
+    if (61 <= code <= 67) or (80 <= code <= 82):                 return "Rain"
+    if (71 <= code <= 77) or (85 <= code <= 86):                 return "Snow"
+    if code >= 95:                                               return "Storm"
+    return ""
+
+def wmo_category(code: int) -> int:
+    """Map WMO code to severity category 0–7 (used for icon selection on the e-ink display)."""
+    code = int(code)
+    if code == 0:                                                return 0  # clear
+    if code <= 2:                                                return 1  # mainly clear / partly cloudy
+    if code == 3:                                                return 2  # overcast
+    if code in (45, 48):                                         return 3  # fog
+    if 51 <= code <= 57:                                         return 4  # drizzle
+    if (61 <= code <= 67) or (80 <= code <= 82):                 return 5  # rain
+    if (71 <= code <= 77) or (85 <= code <= 86):                 return 6  # snow
+    if code >= 95:                                               return 7  # thunderstorm
+    return 0
+
+def get_hourly_forecast(city: str, count: int = 24) -> dict | None:
+    """
+    Return `count` hours of forecast data starting from the current hour, with codes resolved.
+
+    Returns {'temps', 'precips', 'condition_labels', 'condition_descriptions'} or None on failure.
+    condition_labels   — short strings for space-constrained display (e.g. 'Rain')
+    condition_descriptions — full strings for natural language (e.g. 'moderate rain')
+    """
+    try:
+        city_data = get_cached_or_fetch([city]).get(city)
+        if not city_data:
+            return None
+        temps   = json.loads(city_data.get('hourly_temperatures', '[]'))
+        precips = json.loads(city_data.get('hourly_precipitation', '[]'))
+        codes   = json.loads(city_data.get('hourly_weathercodes', '[]'))
+        first_time = datetime.fromisoformat(city_data['first_time'])
+        offset = max(0, int((datetime.now() - first_time).total_seconds() // 3600))
+        s, e = offset, offset + count
+        return {
+            'temps':                  temps[s:e],
+            'precips':                precips[s:e],
+            'condition_labels':       [wmo_label(c)       for c in codes[s:e]],
+            'condition_descriptions': [wmo_description(c) for c in codes[s:e]],
+        }
+    except Exception:
+        return None
+
 def get_default_location():
     try:
         loc = WeatherLocation.get(WeatherLocation.is_default == True)

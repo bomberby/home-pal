@@ -1,6 +1,6 @@
 import services.google_calendar as google_calendar
 import datetime
-from services.calendar_utils import parse_dt, is_event_on
+from services.calendar_utils import parse_dt, is_event_on, event_label
 
 class CalendarAgentService:
   @staticmethod
@@ -29,10 +29,46 @@ class CalendarAgentService:
     if not events:
         return f"You have no events for {day}."
 
+    events = CalendarAgentService._resolve_overlaps(events)
+
     # Format the events for TTS
     events_text = f"Here are your events for {day}: "
     events_text += CalendarAgentService._format_events(events)
     return events_text
+
+  @staticmethod
+  def _resolve_overlaps(events: list) -> list:
+    """Drop untitled events that overlap with a titled event in the same list."""
+    def get_range(event):
+      start_str = event['start'].get('dateTime', event['start'].get('date'))
+      end_str = event['end'].get('dateTime', event['end'].get('date'))
+      try:
+        return parse_dt(start_str), parse_dt(end_str)
+      except Exception:
+        return None, None
+
+    def overlaps(a_start, a_end, b_start, b_end):
+      return a_start < b_end and b_start < a_end
+
+    titled = [e for e in events if e.get('summary')]
+    untitled = [e for e in events if not e.get('summary')]
+
+    surviving_untitled = []
+    for u in untitled:
+      u_start, u_end = get_range(u)
+      if u_start is None:
+        surviving_untitled.append(u)
+        continue
+      if not any(
+        overlaps(u_start, u_end, *get_range(t))
+        for t in titled
+        if get_range(t)[0] is not None
+      ):
+        surviving_untitled.append(u)
+
+    all_events = titled + surviving_untitled
+    all_events.sort(key=lambda e: e['start'].get('dateTime', e['start'].get('date', '')))
+    return all_events
 
   @staticmethod
   def _format_events(events):
@@ -42,7 +78,7 @@ class CalendarAgentService:
     formatted_events = []
     
     for event in events:
-      event_title = event.get('summary', 'No title')
+      event_title = event_label(event)
       event_start = event['start'].get('dateTime', event['start'].get('date'))
       event_end = event['end'].get('dateTime', event['end'].get('date'))
 

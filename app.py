@@ -34,5 +34,11 @@ def create_app():
 if __name__ == '__main__':
     ollama_service.start()
     HomeContextService.start()
+    import os
+    from services.telegram_service import TelegramService
+    from services.image_gen_service import ImageGenService
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not config.Config.DEBUG:
+        TelegramService.start()
+        ImageGenService.start_upgrade_scheduler()
     app = create_app()
     app.run(debug=config.Config.DEBUG, host='0.0.0.0')
