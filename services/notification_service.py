@@ -10,7 +10,7 @@ MORNING_BRIEFING_TIME = "08:00"
 # Minimum away duration before a welcome-back notification is sent.
 # Prevents spurious notifications when RSSI bounces through a full
 # away→home cycle without the user actually leaving.
-MIN_AWAY_DURATION = 5 * 60  # 5 minutes
+MIN_AWAY_DURATION = 30 * 60  # 30 minutes
 
 
 class NotificationService:
@@ -22,7 +22,7 @@ class NotificationService:
 
     @classmethod
     def start(cls):
-        from services.home_context_service import HomeContextService
+        from smart_home.home_context_service import HomeContextService
         HomeContextService.register_on_arrive(cls._on_arrive)
         HomeContextService.register_on_leave(cls._on_leave)
 
@@ -43,7 +43,7 @@ class NotificationService:
         if cls._left_at is None or (now.timestamp() - cls._left_at) < MIN_AWAY_DURATION:
             return
 
-        from services.memory_service import MemoryService
+        from agents.memory_service import MemoryService
         threading.Thread(
             target=MemoryService.observe,
             args=(f"User arrived home at {now.strftime('%H:%M')} ({now.strftime('%A')})",),
@@ -73,7 +73,7 @@ class NotificationService:
         if not lights_on:
             return  # nothing to do
 
-        from services.memory_service import MemoryService
+        from agents.memory_service import MemoryService
         threading.Thread(
             target=MemoryService.observe,
             args=("User left home with the lights still on",),
@@ -103,7 +103,7 @@ class NotificationService:
         time.sleep(30)  # give server time to settle on startup
         while True:
             try:
-                from services.home_context_service import HomeContextService
+                from smart_home.home_context_service import HomeContextService
                 from agents.persona_agent import PersonaAgent
                 from services.telegram_service import TelegramService
                 poor = HomeContextService.has_poor_air()
@@ -168,7 +168,7 @@ class NotificationService:
 
     @classmethod
     def _check_rain_warning(cls):
-        from services.home_context_service import HomeContextService
+        from smart_home.home_context_service import HomeContextService
         if HomeContextService.is_home() or cls._rain_notified:
             return
         try:
@@ -201,7 +201,7 @@ class NotificationService:
 
     @classmethod
     def _check_meeting_reminder(cls):
-        from services.home_context_service import HomeContextService
+        from smart_home.home_context_service import HomeContextService
         if HomeContextService.is_home():
             return
         try:

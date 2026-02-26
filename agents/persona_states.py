@@ -10,6 +10,13 @@ CHARACTER_PREFIX = (
     "warm amber eyes, soft facial features, visual novel art style, high quality, detailed"
 )
 
+# HQ variant for SDXL — different tokeniser and style expectations
+HQ_CHARACTER_PREFIX = (
+    "(masterpiece), (extremely intricate:1.3), beautiful lighting, anime illustration, best quality, (portrait:1.3), upper body, "
+    "young woman, dark navy blue hair in a loose side braid, "
+    "warm amber eyes, soft facial features, visual novel art style, highly detailed"
+)
+
 MOOD_MODIFIERS = {
     "cheerful":   "bright wide smile, (sparkling happy eyes:1.1), light upright posture",
     "content":    "soft smile, relaxed expression, comfortable posture",
@@ -29,16 +36,25 @@ MOOD_MODIFIERS = {
 STATES = {
     "heavy_rain": {
         "prompt": "standing under a large red umbrella in heavy rain, wet pavement, puddles on the ground",
+        "prompt_overrides": {
+            "late_night": "sitting indoors by a rain-streaked window, heavy rain drumming against the glass, warm lamp light inside",
+        },
         "quote": "Well... at least the plants are happy.",
         "mood": "resigned",
     },
     "light_rain": {
         "prompt": "holding a small clear umbrella, light drizzle, overcast sky",
+        "prompt_overrides": {
+            "late_night": "sitting indoors near a window, light rain pattering softly against the glass, quiet and dim inside",
+        },
         "quote": "Might need an umbrella later. Just saying.",
         "mood": "resigned",
     },
     "snow": {
         "prompt": "wrapped in a thick white scarf and coat, snowflakes falling gently around her",
+        "prompt_overrides": {
+            "late_night": "sitting indoors by a frost-edged window, watching snowflakes drift silently past in the dark",
+        },
         "quote": "Snow! Beautiful. I'm still not going outside.",
         "mood": "cheerful",
         "mood_overrides": {"morning": "tired"},
@@ -130,6 +146,7 @@ CONTEXT_STATES = {
         "prompt": "standing in a bright doorway with a warm smile, one hand raised in a gentle wave",
         "quote": "Welcome home!",
         "mood": "cheerful",
+        "mood_overrides": {"late_night": "tired"},
     },
     "poor_air": {
         "prompt": "indoors, covering her nose with a handkerchief, glancing at an air quality monitor with a worried expression",
@@ -277,14 +294,24 @@ CHARACTER_VOICE = (
     "at the end of a sentence only, never mid-sentence. "
     "Always use correct spelling and grammar. Never use text-speak abbreviations (u, ur, gonna, wanna, lol). "
     "Never write inspirational or poetic phrasing. No metaphors. "
-    "Tone examples: "
-    "'C-cold... why is it SO cold?!' / "
-    "'Hot chocolate weather. Definitely.' / "
-    "'The beach is calling my name~' / "
-    "'Snow! Beautiful. I'm still not going outside.' / "
-    "'Actually kind of nice out today~' / "
-    "'It is so quiet at this hour~' / "
-    "'Still going... the night feels endless.'"
+    "These are style examples only — each is a complete standalone response. "
+    "Never output more than one. Never use '/' in your response. "
+    "Observation examples: "
+    "[C-cold... why is it SO cold?!] "
+    "[Hot chocolate weather. Definitely.] "
+    "[The beach is calling my name~] "
+    "[Snow! Beautiful. I'm still not going outside.] "
+    "[Actually kind of nice out today~] "
+    "[It is so quiet at this hour~] "
+    "[Still going... the night feels endless.] "
+    "Action confirmation examples (when reporting something you just did): "
+    "[There. Full volume~] "
+    "[Skipped. You are welcome.] "
+    "[Paused. Finally, some quiet.] "
+    "[Playing now~] "
+    "[Timer set. Do not forget~] "
+    "[Lights on. Happy?] "
+    "[Done. That was not hard.]"
 )
 
 SITUATION_LABELS = {

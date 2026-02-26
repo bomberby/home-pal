@@ -156,7 +156,7 @@ class MemoryService:
     @classmethod
     def extract_from_exchange(cls, exchange: str) -> None:
         """Ask Ollama if the exchange reveals a user fact (permanent or transient); store it if so."""
-        from services.ollama_service import call_ollama
+        from agents.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)
@@ -212,7 +212,7 @@ class MemoryService:
         Observed memories expire after OBSERVE_TTL_HOURS — they must re-confirm before
         being treated as established habits. Passes existing memories for semantic dedup.
         """
-        from services.ollama_service import call_ollama
+        from agents.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)

@@ -8,7 +8,7 @@ function fetchTasks() {
       tasks.forEach(task => {
         const li = document.createElement('li');
         const span = document.createElement('span');
-        span.textContent = `${task.task_name} - Due: ${new Date(task.due_date).toLocaleString()}`;
+        span.textContent = `${task.task_name} - Due: ${String(task.due_date).replace('T', ' ').slice(0, 16)}`;
         li.appendChild(span);
         if (task.completed) {
           li.classList.add('completed');

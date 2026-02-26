@@ -160,14 +160,28 @@ class HomeContextService:
 
     @classmethod
     def air_quality(cls) -> str | None:
-        """Return 'good', 'poor', or 'alert' based on VOC index, or None if no data yet."""
-        if cls._voc is None:
+        """Return 'good', 'poor', or 'alert' based on VOC and NOx indices, or None if no data yet."""
+        c = config.Config
+        readings = [
+            (cls._voc, c.VOC_POOR_THRESHOLD, c.VOC_THRESHOLD),
+            (cls._nox, c.NOX_POOR_THRESHOLD, c.NOX_THRESHOLD),
+        ]
+        if all(v is None for v, *_ in readings):
             return None
-        if cls._voc > config.Config.VOC_THRESHOLD:
-            return 'alert'
-        if cls._voc > config.Config.VOC_POOR_THRESHOLD:
-            return 'poor'
-        return 'good'
+        levels = {'good': 0, 'poor': 1, 'alert': 2}
+        result = 'good'
+        for value, poor_thresh, alert_thresh in readings:
+            if value is None:
+                continue
+            if value > alert_thresh:
+                label = 'alert'
+            elif value > poor_thresh:
+                label = 'poor'
+            else:
+                continue
+            if levels[label] > levels[result]:
+                result = label
+        return result
 
     @classmethod
     def has_poor_air(cls) -> bool:

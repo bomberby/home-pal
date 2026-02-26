@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Persona Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0f0f1a; color: #ccc; padding: 24px; }
+
+    /* ── Tab bar ─────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 22px;
+      border-bottom: 1px solid #2a2a44;
+    }
+    .tab-btn {
+      padding: 8px 18px;
+      background: none;
+      border: 1px solid transparent;
+      border-bottom: none;
+      color: #555;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 4px 4px 0 0;
+      position: relative;
+      bottom: -1px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .tab-btn:hover { color: #9af; }
+    .tab-btn.active {
+      color: #ccc;
+      background: #0f0f1a;
+      border-color: #2a2a44;
+      border-bottom-color: #0f0f1a;
+    }
+
+    /* ── Tab panels ──────────────────────────────────────────────────── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── Images panel ────────────────────────────────────────────────── */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+
+    .card {
+      background: #1a1a2e;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #2a2a44;
+      display: flex;
+      flex-direction: column;
+    }
+    .card-img {
+      aspect-ratio: 1;
+      overflow: hidden;
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      font-size: 11px;
+    }
+    .card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .card-body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    .state-key { font-size: 11px; color: #7788bb; word-break: break-all; }
+
+    .tiers { display: flex; gap: 5px; }
+    .tier {
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .tier.available       { background: #1a3a1a; color: #6c6; border-color: #2a5a2a; cursor: pointer; }
+    .tier.available:hover { background: #224422; border-color: #3a7a3a; }
+    .tier.active          { background: #2a5a2a; color: #9f9; border-color: #4a8a4a; }
+    .tier.missing         { background: #1e1e1e; color: #444; border-color: #333; cursor: default; }
+
+    .actions { display: flex; flex-direction: column; gap: 5px; margin-top: auto; }
+    button {
+      padding: 5px 0;
+      border: 1px solid #334;
+      background: #202038;
+      color: #9af;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      transition: background 0.15s;
+    }
+    button:hover:not(:disabled) { background: #2a2a55; border-color: #556; }
+    button:disabled { color: #444; border-color: #222; cursor: default; }
+    button.danger { color: #f88; border-color: #533; }
+    button.danger:hover:not(:disabled) { background: #2a1a1a; }
+
+    .status { font-size: 10px; color: #666; min-height: 14px; text-align: center; }
+    .status.ok  { color: #6c6; }
+    .status.err { color: #f66; }
+
+    /* ── Memories panel ──────────────────────────────────────────────── */
+    .mem-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .mem-toolbar .mem-count { font-size: 11px; color: #555; }
+
+    .mem-list { display: flex; flex-direction: column; gap: 8px; }
+    .mem-empty { font-size: 12px; color: #444; padding: 20px 0; }
+
+    .mem-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 6px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .mem-card:hover { border-color: #3a3a5a; }
+
+    .mem-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .mem-content { font-size: 13px; color: #dde; line-height: 1.4; word-break: break-word; }
+    .mem-meta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .mem-badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .mem-badge.src-user     { background: #1a2a3a; color: #7af; border: 1px solid #2a4a6a; }
+    .mem-badge.src-observed { background: #2a1a3a; color: #b7f; border: 1px solid #4a2a6a; }
+    .mem-badge.src-other    { background: #1e1e2a; color: #88a; border: 1px solid #333; }
+    .mem-time   { font-size: 10px; color: #556; align-self: center; }
+    .mem-expiry { font-size: 10px; color: #885; align-self: center; }
+    .mem-expiry.permanent { color: #468; }
+
+    .mem-del { flex-shrink: 0; padding: 4px 10px; font-size: 10px; letter-spacing: 1px; align-self: center; }
+
+    #mem-status { font-size: 11px; color: #666; min-height: 14px; margin-top: 8px; }
+    #mem-status.ok  { color: #6c6; }
+    #mem-status.err { color: #f66; }
+
+    /* ── Experiment modal ────────────────────────────────────────────── */
+    #exp-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #exp-modal.open { display: flex; }
+
+    #exp-box {
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 8px;
+      padding: 20px;
+      width: min(740px, 95vw);
+      max-height: 90vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .exp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .exp-title { font-size: 11px; color: #7788bb; letter-spacing: 2px; text-transform: uppercase; }
+    .exp-close { width: auto; padding: 4px 12px; }
+
+    .exp-editor {
+      display: flex;
+      gap: 14px;
+    }
+    .exp-orig { flex: 0 0 160px; display: flex; flex-direction: column; gap: 6px; }
+    .exp-orig-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+    .exp-orig img {
+      width: 160px; height: 160px; object-fit: cover;
+      border-radius: 4px; background: #111; display: block;
+    }
+    .exp-controls { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+    .field-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+
+    #exp-prompt {
+      width: 100%; background: #111; border: 1px solid #334; color: #ccc;
+      padding: 8px; font-family: monospace; font-size: 12px;
+      border-radius: 4px; resize: vertical; min-height: 110px;
+    }
+
+    .exp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .exp-seed-wrap { display: flex; gap: 8px; align-items: center; }
+    .exp-seed-wrap .field-label { margin-bottom: 0; white-space: nowrap; }
+    #exp-seed {
+      width: 110px; background: #111; border: 1px solid #334; color: #ccc;
+      padding: 5px 8px; font-family: monospace; font-size: 11px; border-radius: 4px;
+    }
+
+    /* Tier selector */
+    .exp-tiers { display: flex; gap: 6px; }
+    .exp-tier {
+      padding: 4px 10px;
+      border-radius: 3px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      border: 1px solid #334;
+      background: #202038;
+      color: #777;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+    .exp-tier:hover { color: #9af; border-color: #556; }
+    .exp-tier.active { background: #1a3a5a; color: #7cf; border-color: #2a6a9a; }
+    .exp-tier-hint { font-size: 10px; color: #446; margin-left: 2px; }
+
+    .exp-actions { display: flex; gap: 8px; }
+    .exp-actions button { flex: 1; }
+    .exp-actions .exp-cancel { flex: 0 0 auto; padding: 5px 14px; }
+
+    .exp-divider { border: none; border-top: 1px solid #2a2a44; margin: 0; }
+
+    .exp-result { display: flex; flex-direction: column; gap: 10px; }
+    .exp-result-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+    .exp-result-row { display: flex; gap: 14px; align-items: flex-start; }
+    #exp-result-img {
+      width: 200px; height: 200px; object-fit: contain;
+      border-radius: 4px; background: #111; display: block; flex-shrink: 0;
+    }
+    .exp-commit-col { display: flex; flex-direction: column; gap: 8px; }
+    #exp-commit-btn { width: auto; padding: 5px 16px; }
+    #exp-commit-status { font-size: 10px; color: #666; min-height: 14px; }
+    #exp-commit-status.ok  { color: #6c6; }
+    #exp-commit-status.err { color: #f66; }
+
+    #exp-status { font-size: 11px; min-height: 14px; text-align: center; color: #666; }
+    #exp-status.ok  { color: #6c6; }
+    #exp-status.err { color: #f66; }
+  </style>
+</head>
+<body>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('images')">Images</button>
+    <button class="tab-btn" onclick="switchTab('memories')">Memories</button>
+  </div>
+
+  <!-- ── Images panel ──────────────────────────────────────────────── -->
+  <div id="panel-images" class="panel active">
+    <div class="grid">
+      {% for state in states %}
+      <div class="card" id="card-{{ state.key }}" data-prompt="{{ state.prompt | e }}">
+        <div class="card-img">
+          {% if state.has_meta %}
+            <img id="img-{{ state.key }}"
+                 src="/persona/image/{{ state.key }}?tier={{ 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') }}&t=0"
+                 alt="{{ state.key }}" />
+          {% else %}
+            no image
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <div class="state-key">{{ state.key }}</div>
+
+          <div class="tiers">
+            {% set default_tier = 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') %}
+            <span id="tier-fast-{{ state.key }}"
+                  class="tier available {{ 'active' if default_tier == 'fast' }}"
+                  onclick="viewTier('{{ state.key }}', 'fast')">FAST</span>
+            <span id="tier-mq-{{ state.key }}"
+                  class="tier {{ 'available' if state.has_hq else 'missing' }} {{ 'active' if default_tier == 'mq' }}"
+                  {% if state.has_hq %}onclick="viewTier('{{ state.key }}', 'mq')"{% endif %}>MQ</span>
+            <span id="tier-uhq-{{ state.key }}"
+                  class="tier {{ 'available' if state.has_uhq else 'missing' }} {{ 'active' if default_tier == 'uhq' }}"
+                  {% if state.has_uhq %}onclick="viewTier('{{ state.key }}', 'uhq')"{% endif %}>UHQ</span>
+          </div>
+
+          <div class="actions">
+            <button onclick="invalidate('{{ state.key }}', 'fast')"
+                    {% if not state.has_meta %}disabled{% endif %}>Re-roll Fast</button>
+            <button onclick="invalidate('{{ state.key }}', 'mq')"
+                    {% if not state.has_meta %}disabled{% endif %}>Re-roll MQ</button>
+            <button onclick="invalidate('{{ state.key }}', 'uhq')"
+                    {% if not state.has_meta %}disabled{% endif %}>Re-roll UHQ</button>
+            <button class="danger" onclick="invalidate('{{ state.key }}', 'all')"
+                    {% if not state.has_meta %}disabled{% endif %}>Re-roll All</button>
+            <button onclick="openExperiment('{{ state.key }}')"
+                    {% if not state.has_meta %}disabled{% endif %}>Experiment…</button>
+          </div>
+          <div class="status" id="status-{{ state.key }}"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Memories panel ────────────────────────────────────────────── -->
+  <div id="panel-memories" class="panel">
+    <div class="mem-toolbar">
+      <span class="mem-count" id="mem-count"></span>
+      <button class="danger" onclick="clearAllMemories()" style="width:auto;padding:5px 14px;">Clear All</button>
+    </div>
+    <div class="mem-list" id="mem-list"></div>
+    <div id="mem-status"></div>
+  </div>
+
+  <!-- ── Experiment modal ───────────────────────────────────────────── -->
+  <div id="exp-modal" onclick="onModalBackdrop(event)">
+    <div id="exp-box">
+
+      <div class="exp-header">
+        <span class="exp-title" id="exp-title">Experiment</span>
+        <button class="exp-close" onclick="closeExperiment()">✕ Close</button>
+      </div>
+
+      <div class="exp-editor">
+        <div class="exp-orig">
+          <div class="exp-orig-label">Current</div>
+          <img id="exp-orig-img" src="" alt="" />
+        </div>
+        <div class="exp-controls">
+          <div>
+            <div class="field-label">Scene Prompt</div>
+            <textarea id="exp-prompt" rows="5"></textarea>
+          </div>
+          <div class="exp-row">
+            <div class="exp-seed-wrap">
+              <span class="field-label">Seed</span>
+              <input id="exp-seed" type="number" placeholder="random" />
+            </div>
+          </div>
+          <div>
+            <div class="field-label">Tier</div>
+            <div class="exp-tiers">
+              <button class="exp-tier active" data-tier="fast" onclick="selectTier('fast')">
+                FAST <span class="exp-tier-hint">~30s</span>
+              </button>
+              <button class="exp-tier" data-tier="mq" onclick="selectTier('mq')">
+                MQ <span class="exp-tier-hint">~5–10m</span>
+              </button>
+              <button class="exp-tier" data-tier="uhq" onclick="selectTier('uhq')">
+                UHQ <span class="exp-tier-hint">~15–20m</span>
+              </button>
+            </div>
+          </div>
+          <div class="exp-actions">
+            <button id="exp-gen-btn" onclick="runExperiment()">Generate</button>
+            <button class="exp-cancel" onclick="closeExperiment()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="exp-status"></div>
+
+      <hr class="exp-divider" id="exp-result-divider" style="display:none">
+
+      <div class="exp-result" id="exp-result-section" style="display:none">
+        <div class="exp-result-label" id="exp-result-label">Result</div>
+        <div class="exp-result-row">
+          <img id="exp-result-img" src="" alt="experiment result" />
+          <div class="exp-commit-col">
+            <button id="exp-commit-btn" class="danger" onclick="commitExperiment()">Replace State Image</button>
+            <div id="exp-commit-status"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ── Tab switching ─────────────────────────────────────────────────
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('onclick').includes(`'${name}'`));
+      });
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('panel-' + name).classList.add('active');
+      if (name === 'memories') loadMemories();
+    }
+
+    // ── Images tab ────────────────────────────────────────────────────
+    function viewTier(state, tier) {
+      const img = document.getElementById('img-' + state);
+      if (!img) return;
+      img.src = `/persona/image/${state}?tier=${tier}&t=` + Date.now();
+      ['fast', 'mq', 'uhq'].forEach(t => {
+        const el = document.getElementById(`tier-${t}-${state}`);
+        if (el && el.classList.contains('available')) {
+          el.classList.toggle('active', t === tier);
+        }
+      });
+    }
+
+    async function invalidate(state, tier) {
+      const card    = document.getElementById('card-' + state);
+      const status  = document.getElementById('status-' + state);
+      const buttons = card.querySelectorAll('button');
+      buttons.forEach(b => b.disabled = true);
+      status.className = 'status';
+      status.textContent = (tier === 'fast' || tier === 'all') ? 'Generating…' : 'Queued…';
+
+      try {
+        const resp = await fetch(`/persona/invalidate/${state}?tier=${tier}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          status.className = 'status err';
+          status.textContent = data.error || 'error';
+          buttons.forEach(b => b.disabled = false);
+          return;
+        }
+
+        if (tier === 'fast' || tier === 'all') {
+          viewTier(state, 'fast');
+          if (tier === 'all') {
+            ['mq', 'uhq'].forEach(t => {
+              const el = document.getElementById(`tier-${t}-${state}`);
+              if (el) { el.className = 'tier missing'; el.removeAttribute('onclick'); }
+            });
+          }
+          status.className = 'status ok';
+          status.textContent = 'done';
+        } else {
+          const el = document.getElementById(`tier-${tier}-${state}`);
+          if (el) { el.className = 'tier missing'; el.removeAttribute('onclick'); }
+          status.className = 'status ok';
+          status.textContent = tier.toUpperCase() + ' queued';
+        }
+
+        buttons.forEach(b => b.disabled = false);
+      } catch (e) {
+        status.className = 'status err';
+        status.textContent = 'request failed';
+        buttons.forEach(b => b.disabled = false);
+      }
+    }
+
+    // ── Memories tab ──────────────────────────────────────────────────
+    function fmtDate(iso) {
+      if (!iso) return '';
+      try {
+        return new Date(iso).toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+      } catch { return iso; }
+    }
+
+    function fmtExpiry(iso) {
+      if (!iso) return { text: 'permanent', cls: 'permanent' };
+      try {
+        const d = new Date(iso);
+        const diff = d - new Date();
+        if (diff < 0) return { text: 'expired', cls: '' };
+        const h = Math.round(diff / 36e5);
+        return { text: h < 48 ? `expires in ${h}h` : `expires ${fmtDate(iso)}`, cls: '' };
+      } catch { return { text: iso, cls: '' }; }
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function renderMemories(memories) {
+      const list  = document.getElementById('mem-list');
+      const count = document.getElementById('mem-count');
+      count.textContent = memories.length ? `${memories.length} memor${memories.length === 1 ? 'y' : 'ies'}` : '';
+      if (!memories.length) {
+        list.innerHTML = '<div class="mem-empty">No memories stored.</div>';
+        return;
+      }
+      list.innerHTML = memories.map((m, i) => {
+        const srcCls = m.source === 'user' ? 'src-user' : m.source === 'observed' ? 'src-observed' : 'src-other';
+        const expiry = fmtExpiry(m.expires_at);
+        return `
+          <div class="mem-card" id="mem-${i}">
+            <div class="mem-main">
+              <div class="mem-content">${escHtml(m.content)}</div>
+              <div class="mem-meta">
+                <span class="mem-badge ${srcCls}">${escHtml(m.source || 'unknown')}</span>
+                <span class="mem-time">added ${fmtDate(m.timestamp)}</span>
+                <span class="mem-expiry ${expiry.cls}">${expiry.text}</span>
+              </div>
+            </div>
+            <button class="danger mem-del" onclick="deleteMemory(${i + 1})">Delete</button>
+          </div>`;
+      }).join('');
+    }
+
+    function setMemStatus(msg, cls = '') {
+      const el = document.getElementById('mem-status');
+      el.textContent = msg;
+      el.className = cls;
+    }
+
+    async function loadMemories() {
+      setMemStatus('Loading…');
+      try {
+        const resp = await fetch('/persona/memories');
+        renderMemories(await resp.json());
+        setMemStatus('');
+      } catch { setMemStatus('Failed to load memories.', 'err'); }
+    }
+
+    async function deleteMemory(index) {
+      setMemStatus('Deleting…');
+      try {
+        const resp = await fetch(`/persona/memories/${index}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { setMemStatus(data.error || 'Delete failed.', 'err'); return; }
+        setMemStatus('Deleted.', 'ok');
+        await loadMemories();
+      } catch { setMemStatus('Request failed.', 'err'); }
+    }
+
+    async function clearAllMemories() {
+      if (!confirm('Delete all memories? This cannot be undone.')) return;
+      setMemStatus('Clearing…');
+      try {
+        const resp = await fetch('/persona/memories', { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { setMemStatus(data.error || 'Clear failed.', 'err'); return; }
+        setMemStatus('All memories cleared.', 'ok');
+        await loadMemories();
+      } catch { setMemStatus('Request failed.', 'err'); }
+    }
+
+    // ── Experiment modal ──────────────────────────────────────────────
+    let _expState    = null;
+    let _expTier     = 'fast';
+    let _pollTimer   = null;
+
+    function selectTier(tier) {
+      _expTier = tier;
+      document.querySelectorAll('.exp-tier').forEach(b => {
+        b.classList.toggle('active', b.dataset.tier === tier);
+      });
+      // If we have an experiment image for this tier already, show it; otherwise hide
+      checkExistingExp();
+    }
+
+    function checkExistingExp() {
+      if (!_expState) return;
+      const img = document.getElementById('exp-result-img');
+      const url = `/persona/image/${_expState}?tier=${_expTier}_exp&t=` + Date.now();
+      const probe = new Image();
+      probe.onload = () => {
+        img.src = url;
+        showResultSection();
+        setExpStatus('');
+        document.getElementById('exp-result-label').textContent =
+          `Result (${_expTier.toUpperCase()})`;
+      };
+      probe.onerror = () => {
+        hideResultSection();
+        setExpStatus('');
+      };
+      probe.src = url;
+    }
+
+    function showResultSection() {
+      document.getElementById('exp-result-divider').style.display = '';
+      document.getElementById('exp-result-section').style.display = '';
+    }
+
+    function hideResultSection() {
+      document.getElementById('exp-result-divider').style.display = 'none';
+      document.getElementById('exp-result-section').style.display = 'none';
+    }
+
+    function setExpStatus(msg, cls = '') {
+      const el = document.getElementById('exp-status');
+      el.textContent = msg;
+      el.className = cls;
+    }
+
+    function openExperiment(state) {
+      _expState = state;
+      _expTier  = 'fast';
+      stopPoll();
+
+      const card = document.getElementById('card-' + state);
+      document.getElementById('exp-title').textContent = 'EXPERIMENT — ' + state;
+      document.getElementById('exp-prompt').value = card.dataset.prompt || '';
+      document.getElementById('exp-seed').value = '';
+      document.getElementById('exp-commit-status').textContent = '';
+      document.getElementById('exp-commit-status').className = '';
+
+      // Reset tier buttons
+      document.querySelectorAll('.exp-tier').forEach(b => {
+        b.classList.toggle('active', b.dataset.tier === 'fast');
+      });
+
+      // Show current best image on the left
+      const cardImg = document.getElementById('img-' + state);
+      document.getElementById('exp-orig-img').src = cardImg ? cardImg.src : '';
+
+      hideResultSection();
+      setExpStatus('');
+      document.getElementById('exp-gen-btn').disabled = false;
+
+      document.getElementById('exp-modal').classList.add('open');
+
+      // Check if a fast experiment already exists
+      checkExistingExp();
+    }
+
+    function closeExperiment() {
+      stopPoll();
+      document.getElementById('exp-modal').classList.remove('open');
+      _expState = null;
+    }
+
+    function onModalBackdrop(e) {
+      if (e.target === document.getElementById('exp-modal')) closeExperiment();
+    }
+
+    function stopPoll() {
+      if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    }
+
+    async function runExperiment() {
+      if (!_expState) return;
+      const prompt = document.getElementById('exp-prompt').value.trim();
+      if (!prompt) { setExpStatus('Prompt is required.', 'err'); return; }
+      const seedVal = document.getElementById('exp-seed').value.trim();
+      const seed = seedVal ? parseInt(seedVal, 10) : null;
+
+      stopPoll();
+      hideResultSection();
+      document.getElementById('exp-gen-btn').disabled = true;
+      document.getElementById('exp-commit-status').textContent = '';
+
+      const tierLabel = _expTier.toUpperCase();
+      const isAsync = _expTier !== 'fast';
+      setExpStatus(isAsync
+        ? `Queuing ${tierLabel} experiment… (generation takes ~${_expTier === 'mq' ? '5–10 min' : '15–20 min'}, poll every 15s)`
+        : 'Generating…');
+
+      try {
+        const resp = await fetch(`/persona/experiment/${_expState}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scene_prompt: prompt, seed, tier: _expTier }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          setExpStatus(data.error || 'Request failed.', 'err');
+          document.getElementById('exp-gen-btn').disabled = false;
+          return;
+        }
+
+        if (!data.async) {
+          // Fast: synchronous — result is ready immediately
+          loadExpResult();
+        } else {
+          // MQ/UHQ: queued — poll until the file appears
+          setExpStatus(`${tierLabel} queued — polling for result…`);
+          _pollTimer = setInterval(pollExpResult, 15000);
+        }
+      } catch (e) {
+        setExpStatus('Request failed.', 'err');
+        document.getElementById('exp-gen-btn').disabled = false;
+      }
+    }
+
+    function loadExpResult() {
+      const state = _expState;
+      const tier  = _expTier;
+      const img   = document.getElementById('exp-result-img');
+      img.src = `/persona/image/${state}?tier=${tier}_exp&t=` + Date.now();
+      img.onload = () => {
+        document.getElementById('exp-result-label').textContent = `Result (${tier.toUpperCase()})`;
+        showResultSection();
+        setExpStatus('Done.', 'ok');
+        document.getElementById('exp-gen-btn').disabled = false;
+        stopPoll();
+      };
+      img.onerror = () => {
+        // Not ready yet — don't change polling state
+      };
+    }
+
+    function pollExpResult() {
+      if (!_expState) { stopPoll(); return; }
+      loadExpResult();
+    }
+
+    async function commitExperiment() {
+      if (!_expState) return;
+      const tier = _expTier;
+      const tierLabel = tier.toUpperCase();
+      if (!confirm(`Replace the ${tierLabel} image for "${_expState}" with the experiment result?`)) return;
+
+      const btn = document.getElementById('exp-commit-btn');
+      const commitStatus = document.getElementById('exp-commit-status');
+      btn.disabled = true;
+      commitStatus.textContent = 'Committing…';
+      commitStatus.className = '';
+
+      try {
+        const resp = await fetch(`/persona/experiment/${_expState}/commit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          commitStatus.textContent = data.error || 'Failed.';
+          commitStatus.className = 'err';
+          return;
+        }
+        commitStatus.textContent = `${tierLabel} committed.`;
+        commitStatus.className = 'ok';
+        // Refresh the card's displayed image if we just committed fast
+        if (tier === 'fast') viewTier(_expState, 'fast');
+      } catch {
+        commitStatus.textContent = 'Request failed.';
+        commitStatus.className = 'err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

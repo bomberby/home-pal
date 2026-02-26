@@ -72,6 +72,9 @@ The Persona character can send you notifications and respond to commands over Te
 - `add [item] to todo` — adds a task to the dashboard to-do list
 - `what's the weather` / `weather tomorrow` — weather summary
 - `what's today` / `tomorrow` — calendar events
+- `play music` / `play [artist/song]` / `skip` / `pause` — Spotify playback control
+- `volume up` / `volume down` / `set volume to 60` — Spotify volume
+- `set a timer for 10 minutes` / `timer for 1 hour for the pasta` — countdown timer (fires a Telegram notification when done)
 
 **Setup:**
 1. Open Telegram and message @BotFather — send `/newbot` and follow the prompts to get a **bot token**
@@ -87,6 +90,33 @@ The Persona character can send you notifications and respond to commands over Te
 5. Restart the server — it will print `[Telegram] Bot started` on success
 
 If `env/secrets/telegram.json` is absent the bot is silently disabled and everything else continues to work normally.
+
+# Setting up Spotify (music control):
+The agent can control Spotify playback via voice/text commands sent to the dashboard agent or Telegram bot.
+
+**Commands:**
+- `play music` / `resume` — resume current playback
+- `play [artist / song / playlist]` — search and play (e.g. `play Arctic Monkeys`, `play lofi playlist`)
+- `skip` / `next track` — skip to next track
+- `pause` / `stop music` — pause playback
+- `volume up` / `volume down` / `set volume to 60` — adjust Spotify volume
+
+**Setup:**
+1. Go to https://developer.spotify.com/dashboard and create a new app
+2. In the app settings under **Redirect URIs**, add `http://127.0.0.1:5000/spotify/callback`
+   - **Important:** use `127.0.0.1`, not `localhost` — Spotify's dashboard rejects `localhost`
+3. Create `env/secrets/spotify.json`:
+```json
+{
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "redirect_uri": "http://127.0.0.1:5000/spotify/callback"
+}
+```
+4. Install the dependency: `pip install spotipy`
+5. Visit `http://127.0.0.1:5000/spotify/auth` once — log in and approve. The token is cached in `env/secrets/spotify_token.json`; no re-auth needed after that
+
+If `env/secrets/spotify.json` is absent, Spotify commands return a "not connected" message and everything else continues normally.
 
 # Setting up google calender:
 "Please follow these steps to set up Google Calendar API credentials:

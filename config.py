@@ -30,8 +30,10 @@ class Config:
     AIC_TOPIC = 'zigbee2mqtt/ESP32-C6-Weather-Display'
     VOC_FIELD = 'voc_index_13'
     NOX_FIELD = 'nox_index_14'
-    VOC_POOR_THRESHOLD  = 200   # SGP40 scale; 100 is baseline, above 200 is 'poor'
+    VOC_POOR_THRESHOLD  = 200   # SGP40/SGP41 index scale; 100 is baseline, above 200 is 'poor'
     VOC_THRESHOLD = 400         # above this air quality is 'alert' (persona reacts)
+    NOX_POOR_THRESHOLD  = 50    # SGP41 NOx index scale; 1 is excellent, 100 is baseline, above 50 is 'poor'
+    NOX_THRESHOLD = 100         # above this NOx level is 'alert'
     INDOOR_TEMP_TOO_HOT = 26    # °C
     INDOOR_TEMP_TOO_COLD = 18   # °C
     INDOOR_HUMIDITY_TOO_HIGH = 70  # %

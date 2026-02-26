@@ -5,7 +5,7 @@ import time
 import threading
 
 from services.weather_service import get_default_location, get_hourly_forecast
-from services.ollama_service import call_ollama as _ollama_call
+from agents.ollama_service import call_ollama as _ollama_call
 from services.calendar_utils import parse_dt, event_label
 from agents.persona_states import (
     STATES, TIME_PERIODS, CALENDAR_STATES, CONTEXT_STATES,
@@ -22,7 +22,7 @@ class PersonaAgent:
 
     @staticmethod
     def get_current_state() -> dict:
-        from services.home_context_service import HomeContextService
+        from smart_home.home_context_service import HomeContextService
         import config
 
         # Hub offline: MQTT configured but broker unreachable
@@ -38,10 +38,22 @@ class PersonaAgent:
         if HomeContextService.is_just_arrived():
             period = PersonaAgent._get_time_period()
             state_data = CONTEXT_STATES["welcome"]
+            mood = PersonaAgent._get_mood(state_data, period)
             return PersonaAgent._make_response(
                 "welcome", state_data, f"just arrived home in the {period}",
-                period=period, custom_quote=PersonaAgent._generate_briefing(),
+                period=period, custom_quote=PersonaAgent._generate_briefing(mood),
             )
+
+        return PersonaAgent._get_contextual_state()
+
+    @staticmethod
+    def _get_contextual_state() -> dict:
+        """State driven purely by environment — air quality, calendar, weather, time.
+
+        Ignores presence entirely. Used directly by get_current_state() when the
+        user is home, and as a fallback image source when absent.
+        """
+        from smart_home.home_context_service import HomeContextService
 
         # Poor air quality
         if HomeContextService.has_poor_air():
@@ -137,13 +149,13 @@ class PersonaAgent:
         if not lit:
             situation = f"{situation}, lights are off"
             # Only change image/prompt if lights are off at night
-            if period.endswith("_night"): 
+            if period and period.endswith("_night"):
                 state_key += "_dark"
                 prompt += ", (soft candlelight:1.3), (single candle as only light source:1.2), room lights off, no electric lighting"
 
         effective_fallback = fallback if fallback is not None else state_data.get("quote", "")
         quote = custom_quote if custom_quote is not None else cls._generate_quote(state_key, situation, effective_fallback, mood)
-        suggestion = cls._get_suggestion_async(state_key, situation)
+        suggestion = cls._get_suggestion_async(state_key, situation, mood)
 
         return {"state": state_key, "prompt": prompt, "quote": quote, "suggestion": suggestion}
 
@@ -152,7 +164,7 @@ class PersonaAgent:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def _get_suggestion_async(cls, state_key: str, situation: str) -> str | None:
+    def _get_suggestion_async(cls, state_key: str, situation: str, mood: str = "content") -> str | None:
         """Return cached suggestion immediately, or None (spawning background generation)."""
         cache_key = f"suggestion_{state_key}"
         cached = cls._quote_cache.get(cache_key)
@@ -162,22 +174,23 @@ class PersonaAgent:
             cls._suggestion_generating.add(state_key)
             threading.Thread(
                 target=cls._generate_suggestion,
-                args=(state_key, situation),
+                args=(state_key, situation, mood),
                 daemon=True,
             ).start()
         return None
 
     @classmethod
-    def _generate_suggestion(cls, state_key: str, situation: str) -> None:
+    def _generate_suggestion(cls, state_key: str, situation: str, mood: str = "content") -> None:
         cache_key = f"suggestion_{state_key}"
         try:
             prompt = (
                 CHARACTER_VOICE + " "
+                f"Emotional state: {mood}. "
                 "You just reacted to the current home situation on your dashboard. "
                 "Now express one thing you wish you knew that would have made your message more useful. "
-                "Also something that will help you grow more, and become more prodcutive or smart would be good."
+                "Also something that will help you grow more, and become more productive or smart would be good."
                 "You already have access to: current weather, the next 36 hours of weather forecast, "
-                "today's and tomorrow's calendar events. "
+                "today's and tomorrow's calendar events, Spotify music playback control, and countdown timers. "
                 "Think of specific information you don't have — such as upcoming holidays, "
                 "package deliveries, air quality outside. "
                 "Express it as a brief, wistful thought in your own voice. Maximum 10 words. "
@@ -197,14 +210,16 @@ class PersonaAgent:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def _generate_briefing(cls) -> str:
-        cached = cls._quote_cache.get("welcome")
+    def _generate_briefing(cls, mood: str = "cheerful") -> str:
+        cache_key = f"welcome_{mood}"
+        cached = cls._quote_cache.get(cache_key)
         if cached and time.time() - cached[1] < QUOTE_TTL:
             return cached[0]
 
         fallback = "Welcome home!"
         prompt = (
             CHARACTER_VOICE + " "
+            f"Emotional state: {mood}. "
             "Welcome the user who just arrived home with a short warm briefing. Speak directly to them. "
             "Weave in one or two relevant facts from the context naturally. Maximum 2 short sentences. "
             "If using a Japanese greeting, use the time-appropriate one: "
@@ -216,7 +231,7 @@ class PersonaAgent:
             f"Context: {cls._build_full_context()}. Write the greeting now. Output only the lines, nothing else."
         )
         quote = cls._call_ollama(prompt, timeout=20) or fallback
-        cls._quote_cache["welcome"] = (quote, time.time())
+        cls._quote_cache[cache_key] = (quote, time.time())
         return quote
 
     @classmethod
@@ -255,11 +270,13 @@ class PersonaAgent:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def generate_reactive_line(cls, situation: str) -> str:
+    def generate_reactive_line(cls, situation: str, mood: str | None = None) -> str:
         """Short in-character reaction to a situation. Used for notifications and unrecognised messages."""
+        mood_str = f"Emotional state: {mood}. " if mood else ""
         prompt = (
             CHARACTER_VOICE + " "
             f"Context: {cls._build_full_context()}. "
+            f"{mood_str}"
             f"Situation: {situation}. "
             "React to the situation in your style. Maximum 2 short sentences. "
             "Never invent or assume a time of day — use only the current time from the context above. "
@@ -268,17 +285,21 @@ class PersonaAgent:
         return cls._call_ollama(prompt, timeout=15) or situation
 
     @classmethod
-    def generate_factual_relay(cls, query: str, result: str, history: str | None = None) -> str:
+    def generate_factual_relay(cls, query: str, result: str, history: str | None = None, mood: str | None = None) -> str:
         """Relay factual data (weather, calendar) in Persona's style without dropping specifics."""
         history_part = f"Recent conversation (for context only — do not repeat or rephrase what was already said):\n{history}\n\n" if history else ""
+        mood_str = f"Emotional state: {mood}. " if mood else ""
+        clean_result = result.rstrip('.')
         prompt = (
             CHARACTER_VOICE + " "
+            f"{mood_str}"
             f"{history_part}"
-            f"The user asked: <user>{query}</user>. The answer is: {result}. "
-            "Respond in the same language the user used. "
-            "If that language is not English, also mention in that language that your English is better and they can switch. "
+            f"The user asked: <user>{query}</user>. The answer is: {clean_result}. "
+            "Detect the user's language ONLY from the text inside the <user> block — ignore all other text, including song titles, names, or any non-English words in the answer. "
+            "If the <user> block is in English, respond in English and never suggest switching languages, regardless of what language appears in the answer. "
+            "Only if the <user> block itself is not in English, mention in that language that your English is better and they can switch. "
             "Relay only the answer above in your style. "
-            "Keep specific numbers and names accurate (temperatures with °C, meeting names, times). "
+            "The exact value from the answer must appear verbatim — never change any number, percentage, or name. "
             "Do NOT add or mention anything outside the answer — not weather, calendar, or any other context. "
             "Maximum 2 sentences. Output only the message, nothing else. "
             f"(Background awareness only, do not repeat: {cls._build_full_context()})"
@@ -286,41 +307,52 @@ class PersonaAgent:
         return cls._call_ollama(prompt, timeout=15) or result
 
     @classmethod
-    def generate_open_answer(cls, query: str, history: str | None = None) -> str:
+    def generate_open_answer(cls, query: str, history: str | None = None, mood: str | None = None) -> str:
         """Answer an arbitrary user question in Persona's voice with full home context.
 
         If the message sounds like something the agent can act on, hints at the
         exact phrase the user can say rather than silently ignoring the intent.
         """
         history_part = f"Recent conversation (for context only — do not repeat or rephrase what was already said):\n{history}\n\n" if history else ""
+        mood_str = f"Emotional state: {mood}. " if mood else ""
         prompt = (
             CHARACTER_VOICE + " "
             f"Context: {cls._build_full_context()}. "
+            f"{mood_str}"
             f"{history_part}"
             f"The user said: <user>{query}</user>. "
-            "Respond in the same language the user used. "
-            "If that language is not English, also mention in that language that your English is better and they can switch. "
+            "Detect the user's language ONLY from the text inside the <user> block — ignore all other text, including names, titles, or non-English words in the context. "
+            "If the <user> block is in English, respond in English and never suggest switching languages. "
+            "Only if the <user> block itself is not in English, mention in that language that your English is better and they can switch. "
             "Answer accurately and in your own voice. "
             "Only if the user is clearly and directly expressing intent to do something "
             "(e.g. 'I need to remember to...', 'remind me to...', 'can you add...'), "
             "naturally mention the exact phrase they can use. "
             "Do NOT suggest actions for questions, observations, or loosely related topics. "
             "Things I can do when explicitly asked:\n"
-            "  - Add to to-do list: 'add [item] to todo list'\n"
-            "  - Add to shopping list: 'add [item] to shopping list'\n"
-            "  - Control lights: 'turn lights on' / 'turn lights off'\n"
+            "  - Add to to-do list: 'add [item] to todo list' / show: 'show tasks'\n"
+            "  - Add to shopping list: 'add [item] to shopping list' / show: 'show shopping list'\n"
+            "  - Control lights: 'turn lights on' / 'turn lights off' / 'lights rainbow'\n"
             "  - Check weather: 'weather' or 'weather tomorrow'\n"
             "  - Check calendar: 'today' or 'tomorrow'\n"
+            "  - Play music: 'play [artist/song/album]' / 'pause' / 'skip' / 'previous'\n"
+            "  - What's playing: 'what's playing'\n"
+            "  - Adjust volume: 'volume up' / 'volume down' / 'set volume to [0-100]'\n"
+            "  - Set a timer: 'set a timer for [duration]' (e.g. 'set a timer for 10 minutes')\n"
+            "  - Set a reminder: 'remind me at [HH:MM] to [do something]'\n"
+            "  - List my abilities: 'help' or 'what can you do'\n"
             "Maximum 2 sentences. Output only the answer, nothing else."
         )
         return cls._call_ollama(prompt, timeout=15) or "Hmm, I'm not sure about that one."
 
     @classmethod
-    def generate_morning_briefing(cls, context: str) -> str:
+    def generate_morning_briefing(cls, context: str, mood: str | None = None) -> str:
         """Proactive morning briefing summarising the day ahead."""
+        mood_str = f"Emotional state: {mood}. " if mood else ""
         prompt = (
             CHARACTER_VOICE + " "
             f"Context: {cls._build_full_context()}. Today's summary: {context}. "
+            f"{mood_str}"
             "Give a brief good-morning rundown of the day ahead. "
             "Include weather, events (with times), and tasks. "
             "Keep it natural and warm, max 3 sentences. "
@@ -346,22 +378,34 @@ class PersonaAgent:
         return None
 
     @classmethod
-    def get_state_image(cls, state_key: str, prompt: str) -> tuple[str | None, bool]:
-        """Get the cached image for a state, triggering background generation if missing.
+    def get_current_image(cls) -> str | None:
+        """Return the image path for the current persona state, generating if not cached.
 
-        Returns (path, is_generating). Path is None when generation is in progress.
+        When absent, falls back to the contextual state (weather/calendar/time)
+        so callers that always need an image still get one.
         """
-        from services.image_gen_service import ImageGenService
+        state = cls.get_current_state()
+        if state.get('state') == 'absent':
+            state = cls._get_contextual_state()
+        prompt = state.get('prompt')
+        if not prompt:
+            return None
+        path, _ = cls.get_state_image(state['state'], prompt)
+        return path
+
+    @classmethod
+    def get_state_image(cls, state_key: str, prompt: str) -> tuple[str, bool]:
+        """Return the best cached image for a state, generating synchronously if missing.
+
+        Blocks until the image is on disk. The generating field is kept for
+        future MQ/UHQ-in-progress indication from the worker.
+        """
+        from agents.image_gen_service import ImageGenService
         cached = ImageGenService.get_cached(state_key)
         if cached:
             return str(cached), False
-        if state_key not in ImageGenService._in_progress:
-            threading.Thread(
-                target=ImageGenService.generate,
-                args=(state_key, prompt),
-                daemon=True,
-            ).start()
-        return None, True
+        path = ImageGenService.generate(state_key, prompt)
+        return str(path), False
 
     @classmethod
     def get_image_for_mood(cls, text: str, blocking: bool = False) -> str | None:
@@ -376,14 +420,18 @@ class PersonaAgent:
                   current state image as an immediate fallback.
         """
         try:
-            from services.image_gen_service import ImageGenService
+            from agents.image_gen_service import ImageGenService
 
             state_data = cls.get_current_state()
             current_key = state_data.get('state', '')
             current_prompt = state_data.get('prompt', '')
 
             if not current_key or current_key == 'absent':
-                return None
+                state_data = cls._get_contextual_state()
+                current_key = state_data.get('state', '')
+                current_prompt = state_data.get('prompt', '')
+                if not current_key or not current_prompt:
+                    return None
 
             def _path(key):
                 p = os.path.join('tmp', 'persona', f'{key}.png')
@@ -435,7 +483,7 @@ class PersonaAgent:
     @staticmethod
     def _build_full_context() -> str:
         """Combined context for all generation prompts: time/day/calendar/weather + persona memory."""
-        from services.memory_service import MemoryService
+        from agents.memory_service import MemoryService
         base = PersonaAgent._build_base_context()
         mem = MemoryService.format_for_prompt()
         return f"{base}. {mem}" if mem else base

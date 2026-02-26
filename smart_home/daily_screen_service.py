@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 from services.weather_service import get_default_location, get_hourly_forecast
 from services.calendar_utils import is_event_on, parse_dt, event_label
 import services.google_calendar as google_calendar
-from services.home_context_service import HomeContextService
+from smart_home.home_context_service import HomeContextService
 from models import Task, ShoppingListItem
 import config
 
@@ -190,8 +190,10 @@ def _draw_weather_strip(draw, x, y, w, h, temps, precips, condition_labels):
         hour    = (now_hour + tick) % 24
         time_lbl = f"{hour:02d}h"
         cond_lbl = condition_labels[tick] if condition_labels and tick < len(condition_labels) else ""
-        draw.text((tx, y + 10), time_lbl, font=fn_small, fill=BLACK, anchor="mm")
-        draw.text((tx, y + 28), cond_lbl, font=fn_small, fill=BLACK, anchor="mm")
+        # First tick: left-align from strip edge so wide labels don't overflow left
+        anchor, lx = ("lm", x) if tick == 0 else ("mm", tx)
+        draw.text((lx, y + 10), time_lbl, font=fn_small, fill=BLACK, anchor=anchor)
+        draw.text((lx, y + 28), cond_lbl, font=fn_small, fill=BLACK, anchor=anchor)
 
     # Min / max in top-right corner
     draw.text((x + w - 4, y + 10), f"{min_t:.0f}°–{max_t:.0f}°C", font=fn_small, fill=BLACK, anchor="rm")
@@ -302,10 +304,8 @@ def generate_daily_image() -> Image.Image:
 
     # ── Persona image (left panel, x=0-219, y=0-379) ─────────────────────────
     from agents.persona_agent import PersonaAgent
-    from services.image_gen_service import ImageGenService
     persona    = PersonaAgent.get_current_state()
-    state_key  = persona.get('state', '')
-    image_path = ImageGenService.get_cached(state_key)
+    image_path = PersonaAgent.get_current_image()
 
     if image_path:
         try:

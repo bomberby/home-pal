@@ -1,6 +1,6 @@
 import io
 from flask import Blueprint, send_file
-from services.image_dither import dither_image, dither_bw_image, dither_pil_image
+from smart_home.image_dither import dither_image, dither_bw_image, dither_pil_image
 from cache import cache
 
 eink_bp = Blueprint('eink', __name__)
@@ -9,7 +9,7 @@ eink_bp = Blueprint('eink', __name__)
 @eink_bp.route('/eink/daily')
 @cache.cached(timeout=900)
 def get_daily_image():
-    from services.daily_screen_service import generate_daily_image
+    from smart_home.daily_screen_service import generate_daily_image
     img = generate_daily_image()
     packed = dither_pil_image(img)
     return send_file(io.BytesIO(packed), mimetype='application/octet-stream')

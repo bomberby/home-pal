@@ -3,7 +3,7 @@ from flask import Blueprint, jsonify, request
 from playhouse.shortcuts import model_to_dict
 from models import BaseModel
 from smart_home.smart_home_service import get_device, get_device_status, change_device_status
-from services.home_context_service import HomeContextService
+from smart_home.home_context_service import HomeContextService
 import config
 
 smart_home_bp = Blueprint('smart_home', __name__)

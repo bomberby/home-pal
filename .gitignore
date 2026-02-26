@@ -5,11 +5,17 @@ my_database.db
 __pycache__/
 *.pyc
 
-## Secrets & credentials
-env/secrets
+## Virtual environment
+.venv/
+
+## Runtime / secrets / weights — nothing in env/ is committed
+env/
 embedded/*/secrets.h
 token.pickle
 
 ## Generated files
 tmp/
 eink_preview.png
+
+## Stray lockfiles
+package-lock.json

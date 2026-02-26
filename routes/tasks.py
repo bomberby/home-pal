@@ -8,7 +8,13 @@ tasks_bp = Blueprint('tasks', __name__)
 
 @tasks_bp.route('/tasks', methods=['GET'])
 def get_tasks():
-    tasks = [model_to_dict(task) for task in Task.select() if Task]
+    tasks = []
+    for task in Task.select():
+        d = model_to_dict(task)
+        dd = d.get('due_date')
+        if dd is not None:
+            d['due_date'] = dd.strftime('%Y-%m-%dT%H:%M') if hasattr(dd, 'strftime') else str(dd)[:16]
+        tasks.append(d)
     return jsonify(tasks)
 
 

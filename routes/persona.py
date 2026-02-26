@@ -1,7 +1,7 @@
 import re
 from flask import Blueprint, jsonify, send_file, render_template, request
 from agents.persona_agent import PersonaAgent
-from services.image_gen_service import ImageGenService
+from agents.image_gen_service import ImageGenService
 
 persona_bp = Blueprint('persona', __name__)
 
@@ -31,34 +31,19 @@ def persona_widget():
 def get_persona_image(state):
     if not re.fullmatch(r'[a-z_]+', state):
         return jsonify({'error': 'Invalid state'}), 400
-    path = ImageGenService.get_cached(state)
-    if not path:
-        return jsonify({'error': 'Image not yet generated'}), 404
+    tier = request.args.get('tier')
+    if tier == 'fast':
+        from agents.image_gen_service import OUTPUT_DIR
+        path = OUTPUT_DIR / f"{state}.png"
+    elif tier == 'mq':
+        path = ImageGenService._hq_path(state)
+    elif tier == 'uhq':
+        path = ImageGenService._uhq_path(state)
+    elif tier in ('fast_exp', 'mq_exp', 'uhq_exp'):
+        from agents.image_gen_service import OUTPUT_DIR
+        path = OUTPUT_DIR / f"{state}_{tier}.png"
+    else:
+        path = ImageGenService.get_cached(state)
+    if not path or not path.exists():
+        return jsonify({'error': 'Image not found'}), 404
     return send_file(path, mimetype='image/png')
-
-
-# ------------------------------------------------------------------ #
-#  Memory management endpoints                                         #
-# ------------------------------------------------------------------ #
-
-@persona_bp.route('/persona/memories', methods=['GET'])
-def get_memories():
-    from services.memory_service import MemoryService
-    return jsonify(MemoryService.get_all())
-
-
-@persona_bp.route('/persona/memories/<int:index>', methods=['DELETE'])
-def delete_memory(index):
-    from services.memory_service import MemoryService
-    try:
-        MemoryService.remove_at(index)
-        return jsonify({"ok": True})
-    except IndexError as e:
-        return jsonify({"error": str(e)}), 404
-
-
-@persona_bp.route('/persona/memories', methods=['DELETE'])
-def clear_memories():
-    from services.memory_service import MemoryService
-    MemoryService.clear()
-    return jsonify({"ok": True})
