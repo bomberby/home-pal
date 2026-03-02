@@ -58,7 +58,7 @@ def _check_due():
         print(f"[Reminder] Firing: '{label}'")
         try:
             from services.telegram_service import TelegramService
-            from agents.persona_agent import PersonaAgent
+            from agents.persona.agent import PersonaAgent
             situation = f"a scheduled reminder just triggered: '{label}'"
             message = PersonaAgent.generate_reactive_line(situation)
             TelegramService.send_message(message, photo=TelegramService.get_image_for_text(message))

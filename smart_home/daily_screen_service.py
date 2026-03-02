@@ -303,7 +303,7 @@ def generate_daily_image() -> Image.Image:
     today_str = today.strftime('%Y-%m-%d')
 
     # ── Persona image (left panel, x=0-219, y=0-379) ─────────────────────────
-    from agents.persona_agent import PersonaAgent
+    from agents.persona.agent import PersonaAgent
     persona    = PersonaAgent.get_current_state()
     image_path = PersonaAgent.get_current_image()
 

@@ -50,7 +50,7 @@ class NotificationService:
             daemon=True,
         ).start()
 
-        from agents.persona_agent import PersonaAgent
+        from agents.persona.agent import PersonaAgent
         from services.telegram_service import TelegramService
         text = PersonaAgent.generate_reactive_line("the user just arrived home, you can comment about the situation as if you returned together, "
             "or as if the user returned and you welcome him back")
@@ -80,7 +80,7 @@ class NotificationService:
             daemon=True,
         ).start()
 
-        from agents.persona_agent import PersonaAgent
+        from agents.persona.agent import PersonaAgent
         from services.telegram_service import TelegramService
         text = PersonaAgent.generate_reactive_line("the user just left home and the lights are still on")
 
@@ -104,7 +104,7 @@ class NotificationService:
         while True:
             try:
                 from smart_home.home_context_service import HomeContextService
-                from agents.persona_agent import PersonaAgent
+                from agents.persona.agent import PersonaAgent
                 from services.telegram_service import TelegramService
                 poor = HomeContextService.has_poor_air()
                 voc = HomeContextService._voc
@@ -149,7 +149,7 @@ class NotificationService:
         try:
             from agents.weather_agent_service import WeatherAgentService
             from agents.calendar_agent_service import CalendarAgentService
-            from agents.persona_agent import PersonaAgent
+            from agents.persona.agent import PersonaAgent
             from models import Task
             from services.telegram_service import TelegramService
 
@@ -173,7 +173,7 @@ class NotificationService:
             return
         try:
             from services.weather_service import get_cached_or_fetch, get_default_location
-            from agents.persona_agent import PersonaAgent
+            from agents.persona.agent import PersonaAgent
             from services.telegram_service import TelegramService
 
             location = get_default_location()
@@ -207,7 +207,7 @@ class NotificationService:
         try:
             from services.google_calendar import get_all_events
             from services.calendar_utils import parse_dt
-            from agents.persona_agent import PersonaAgent
+            from agents.persona.agent import PersonaAgent
             from services.telegram_service import TelegramService
 
             now = datetime.now(timezone.utc)

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Bench</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      background: #0f0f1a;
+      color: #ccc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid #2a2a44;
+      background: #0f0f1a;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 {
+      font-size: 13px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #9af;
+    }
+    #status-badge {
+      font-size: 11px;
+      color: #555;
+      padding: 4px 10px;
+      border: 1px solid #2a2a44;
+      border-radius: 4px;
+      min-width: 120px;
+      text-align: center;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    #status-badge.running  { color: #fa4; border-color: #fa4; }
+    #status-badge.ok       { color: #6c6; border-color: #6c6; }
+    #status-badge.err      { color: #f66; border-color: #f66; }
+
+    /* ── Layout ────────────────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────────────────── */
+    .sidebar {
+      border-right: 1px solid #2a2a44;
+      padding: 20px 16px;
+      position: sticky;
+      top: 53px;
+      height: calc(100vh - 53px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .sidebar-section h2 {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 10px;
+    }
+
+    /* Radio / checkbox rows */
+    .option-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 0;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 12px;
+    }
+    .option-row:hover { color: #ccc; }
+    .option-row input[type="radio"],
+    .option-row input[type="checkbox"] {
+      accent-color: #9af;
+      cursor: pointer;
+    }
+    .option-row .size-hint {
+      margin-left: auto;
+      font-size: 10px;
+      color: #444;
+    }
+
+    /* Custom prompt textarea */
+    #custom-input {
+      display: none;
+      margin-top: 8px;
+    }
+    #custom-prompt-text {
+      width: 100%;
+      height: 90px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    #custom-prompt-text:focus { outline: none; border-color: #9af; }
+
+    /* Style toggle */
+    .style-toggle {
+      display: flex;
+      gap: 4px;
+    }
+    .style-btn {
+      flex: 1;
+      padding: 6px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      color: #555;
+      font-family: monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .style-btn:hover { color: #9af; }
+    .style-btn.active { color: #9af; border-color: #9af; }
+
+    /* Timeout input */
+    .timeout-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #777;
+    }
+    #timeout-input {
+      width: 52px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      text-align: right;
+    }
+    #timeout-input:focus { outline: none; border-color: #9af; }
+
+    /* Run button */
+    #run-btn {
+      width: 100%;
+      padding: 10px;
+      background: #1a1a2e;
+      border: 1px solid #9af;
+      color: #9af;
+      font-family: monospace;
+      font-size: 12px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.15s;
+      margin-top: auto;
+    }
+    #run-btn:hover:not(:disabled) { background: #1e2840; }
+    #run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #model-error {
+      font-size: 11px;
+      color: #f66;
+      display: none;
+    }
+
+    /* ── Main area ─────────────────────────────────────────────────────── */
+    .main {
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Result cards — display mode set by JS (flex for single, block for group) */
+    .cards-row {
+      gap: 14px;
+    }
+    .cards-row.single {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    .result-card {
+      flex: 1 1 260px;
+      min-width: 220px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .result-card.loading {
+      opacity: 0.5;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .card-model {
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #9af;
+      text-transform: uppercase;
+    }
+    .card-latency {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-weight: bold;
+    }
+    .card-latency.fast   { background: #0d2e0d; color: #6c6; border: 1px solid #1a4a1a; }
+    .card-latency.medium { background: #2e1e00; color: #fa4; border: 1px solid #4a3000; }
+    .card-latency.slow   { background: #2e0d0d; color: #f66; border: 1px solid #4a1a1a; }
+    .card-latency.pending { background: #1a1a2e; color: #555; border: 1px solid #2a2a44; }
+
+    .card-output {
+      font-size: 13px;
+      color: #ddd;
+      line-height: 1.5;
+      min-height: 40px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .card-output.error-text { color: #f66; font-size: 11px; }
+    .card-output.loading-text { color: #555; font-style: italic; }
+
+    .card-expected {
+      font-size: 10px;
+      color: #555;
+      border-top: 1px solid #2a2a44;
+      padding-top: 8px;
+    }
+    .card-expected .label { color: #444; margin-right: 4px; }
+    .card-expected.pass { color: #6c6; }
+    .card-expected.fail { color: #f66; }
+
+    /* ── Group comparison table ──────────────────────────────────────────── */
+    .group-table {
+      display: grid;
+      gap: 1px;
+      background: #2a2a44;
+      border: 1px solid #2a2a44;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .gt-corner {
+      background: #0f0f1a;
+    }
+    .gt-col-header {
+      background: #0f0f1a;
+      padding: 8px 12px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #9af;
+      text-transform: uppercase;
+      text-align: center;
+    }
+    .gt-row-label {
+      background: #1a1a2e;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      justify-content: center;
+    }
+    .gt-row-label .gt-rl-name {
+      font-size: 12px;
+      color: #ccc;
+    }
+    .gt-row-label .gt-rl-expected {
+      font-size: 10px;
+      color: #555;
+    }
+    .gt-cell {
+      background: #1a1a2e;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .gt-output {
+      font-size: 12px;
+      color: #ddd;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 32px;
+    }
+    .gt-output.error-text { color: #f66; font-size: 11px; }
+    .gt-output.loading-text { color: #555; font-style: italic; }
+    .gt-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+    }
+    .gt-verdict { font-size: 13px; }
+    .gt-verdict.pass { color: #6c6; }
+    .gt-verdict.fail { color: #f66; }
+    .gt-wc { color: #444; margin-left: auto; }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #444;
+    }
+
+    /* Prompt / context blocks */
+    .collapsible-section { display: flex; flex-direction: column; gap: 6px; }
+    .collapse-btn {
+      background: none;
+      border: 1px solid #2a2a44;
+      color: #555;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+      transition: color 0.15s, border-color 0.15s;
+      width: fit-content;
+    }
+    .collapse-btn:hover { color: #9af; border-color: #9af; }
+
+    .collapsible-body {
+      display: none;
+      background: #12121f;
+      border: 1px solid #2a2a44;
+      border-radius: 4px;
+      padding: 12px 14px;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #888;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .collapsible-body.open { display: block; }
+
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #555;
+    }
+
+    /* Empty state */
+    #empty-state {
+      color: #555;
+      font-size: 12px;
+      padding: 40px 0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#9632; LLM Bench</h1>
+  <div id="status-badge">ready</div>
+</header>
+
+<div class="layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+
+    <div class="sidebar-section">
+      <h2>Scenario</h2>
+      {% for key, sc in scenarios.items() %}{% if not sc.get('sub_case') %}
+      <label class="option-row">
+        <input type="radio" name="scenario" value="{{ key }}"
+               {% if loop.first %}checked{% endif %}
+               onchange="onScenarioChange(this.value)">
+        {{ sc.label }}
+      </label>
+      {% endif %}{% endfor %}
+      <div id="custom-input">
+        <textarea id="custom-prompt-text" placeholder="Type raw prompt here..."></textarea>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Models</h2>
+      <div id="model-list"><span style="color:#555;font-size:11px;">Loading...</span></div>
+      <div id="model-error">Could not reach Ollama.<br>Is it running?</div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Style</h2>
+      <div class="style-toggle">
+        <button class="style-btn active" id="btn-flat" onclick="setStyle('flat')">flat</button>
+        <button class="style-btn" id="btn-chat" onclick="setStyle('chat')">chat</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Timeout</h2>
+      <div class="timeout-row">
+        <input type="number" id="timeout-input" value="30" min="5" max="300">
+        <span>seconds</span>
+      </div>
+    </div>
+
+    <button id="run-btn" onclick="runBench()">&#9654; Run</button>
+
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <div id="empty-state">Select a scenario and at least one model, then click Run.</div>
+
+    <div class="cards-row" id="cards-row" style="display:none"></div>
+
+    <div class="collapsible-section" id="prompt-section" style="display:none">
+      <span class="section-label">Prompt</span>
+      <button class="collapse-btn" onclick="toggleCollapse('prompt-body', this)">&#9660; Show prompt</button>
+      <pre class="collapsible-body" id="prompt-body"></pre>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  'use strict';
+
+  let _promptStyle = 'flat';
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function wordCount(s) {
+    return s.split(/\s+/).filter(Boolean).length;
+  }
+
+  function latencyClass(ms) {
+    if (ms < 3000) return 'fast';
+    if (ms <= 8000) return 'medium';
+    return 'slow';
+  }
+
+  function setStatus(text, cls) {
+    const el = document.getElementById('status-badge');
+    el.textContent = text;
+    el.className = cls || '';
+  }
+
+  // ── Model list ────────────────────────────────────────────────────────────
+  async function loadModels() {
+    try {
+      const res = await fetch('/llm-bench/models');
+      const data = await res.json();
+      const container = document.getElementById('model-list');
+
+      if (data.error || !data.models.length) {
+        container.innerHTML = '';
+        document.getElementById('model-error').style.display = 'block';
+        return;
+      }
+
+      container.innerHTML = data.models.map(m => `
+        <label class="option-row">
+          <input type="checkbox" name="model" value="${escHtml(m.name)}">
+          ${escHtml(m.name)}
+          <span class="size-hint">${m.size_gb}GB</span>
+        </label>
+      `).join('');
+
+      // Pre-check the first model for convenience
+      const first = container.querySelector('input[type="checkbox"]');
+      if (first) first.checked = true;
+
+    } catch (e) {
+      document.getElementById('model-list').innerHTML = '';
+      document.getElementById('model-error').style.display = 'block';
+    }
+  }
+
+  // ── Scenario change ───────────────────────────────────────────────────────
+  function onScenarioChange(val) {
+    document.getElementById('custom-input').style.display =
+      val === 'custom' ? 'block' : 'none';
+  }
+
+  // ── Style toggle ──────────────────────────────────────────────────────────
+  function setStyle(style) {
+    _promptStyle = style;
+    document.getElementById('btn-flat').classList.toggle('active', style === 'flat');
+    document.getElementById('btn-chat').classList.toggle('active', style === 'chat');
+  }
+
+  // ── Collapsible ───────────────────────────────────────────────────────────
+  function toggleCollapse(bodyId, btn) {
+    const body = document.getElementById(bodyId);
+    const open = body.classList.toggle('open');
+    btn.textContent = (open ? '\u25b2 Hide' : '\u25bc Show') + ' ' +
+      btn.textContent.replace(/^[▲▼] (Show|Hide) /, '');
+  }
+
+  // ── Spinner state ─────────────────────────────────────────────────────────
+  function renderSpinnerCards(models) {
+    return models.map(m => `
+      <div class="result-card loading">
+        <div class="card-header">
+          <span class="card-model">${escHtml(m)}</span>
+          <span class="card-latency pending">—</span>
+        </div>
+        <div class="card-output loading-text">Running...</div>
+        <div class="card-footer"><span></span></div>
+      </div>
+    `).join('');
+  }
+
+  function renderSpinnerGroup(models) {
+    return `<div style="color:#555;font-size:12px;padding:20px 0">
+      Running 3 cases × ${models.length} model${models.length > 1 ? 's' : ''}...
+    </div>`;
+  }
+
+  // ── Group comparison table ────────────────────────────────────────────────
+  function renderGroupTable(data) {
+    const { rows, models } = data;
+    const N = models.length;
+
+    let html = `<div class="group-table" style="grid-template-columns: 160px repeat(${N}, 1fr)">`;
+
+    // Header row
+    html += '<div class="gt-corner"></div>';
+    for (const m of models) {
+      html += `<div class="gt-col-header">${escHtml(m)}</div>`;
+    }
+
+    // Data rows
+    for (const row of rows) {
+      const expText = row.expected ? `expect: ${row.expected}` : '';
+      html += `
+        <div class="gt-row-label">
+          <span class="gt-rl-name">${escHtml(row.row_label)}</span>
+          <span class="gt-rl-expected">${escHtml(expText)}</span>
+        </div>`;
+      for (const r of row.results) {
+        html += renderGroupCell(r, row.expected);
+      }
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function renderGroupCell(r, expected) {
+    const hasError = !!r.error;
+    const latSec = (r.latency_ms / 1000).toFixed(1);
+    const latCls = hasError ? 'slow' : latencyClass(r.latency_ms);
+    const outputText = hasError ? `Error: ${r.error}` : r.output;
+    const outputCls = hasError ? 'error-text' : '';
+    const wc = hasError ? '' : `${wordCount(r.output)}w`;
+
+    let verdictHtml = '';
+    if (expected && !hasError) {
+      const out = r.output.trim().toLowerCase();
+      let pass;
+      if (expected === 'none') {
+        pass = out === 'none';
+      } else if (expected.startsWith('[transient')) {
+        pass = out.includes('[transient');
+      } else {
+        pass = !out.includes('[transient') && out !== 'none' && out.length > 10;
+      }
+      verdictHtml = `<span class="gt-verdict ${pass ? 'pass' : 'fail'}">${pass ? '&#10003;' : '&#10007;'}</span>`;
+    }
+
+    return `
+      <div class="gt-cell">
+        <div class="gt-output ${outputCls}">${escHtml(outputText)}</div>
+        <div class="gt-meta">
+          ${verdictHtml}
+          <span class="card-latency ${latCls}">${latSec}s</span>
+          <span class="gt-wc">${wc}</span>
+        </div>
+      </div>`;
+  }
+
+  // ── Result card ───────────────────────────────────────────────────────────
+  function renderCard(r, expected) {
+    const hasError = !!r.error;
+    const latMs = r.latency_ms;
+    const latSec = (latMs / 1000).toFixed(1);
+    const latCls = hasError ? 'slow' : latencyClass(latMs);
+    const outputCls = hasError ? 'error-text' : '';
+    const outputText = hasError ? `Error: ${r.error}` : r.output;
+    const wc = hasError ? '' : `${wordCount(r.output)}w`;
+
+    let expectedHtml = '';
+    if (expected && !hasError) {
+      const out = r.output.trim().toLowerCase();
+      let pass;
+      if (expected === 'none') {
+        // Must output exactly "none"
+        pass = out === 'none';
+      } else if (expected.startsWith('[transient')) {
+        // Must include a transient tag (specific duration optional)
+        pass = out.includes('[transient');
+      } else {
+        // "no [transient] tag" — permanent: must store something but without a transient tag
+        pass = !out.includes('[transient') && out !== 'none' && out.length > 10;
+      }
+      const cls = pass ? 'pass' : 'fail';
+      const icon = pass ? '&#10003;' : '&#10007;';
+      expectedHtml = `<div class="card-expected ${cls}"><span class="label">expected:</span>${icon} ${escHtml(expected)}</div>`;
+    }
+
+    return `
+      <div class="result-card">
+        <div class="card-header">
+          <span class="card-model">${escHtml(r.model)}</span>
+          <span class="card-latency ${latCls}">${latSec}s</span>
+        </div>
+        <div class="card-output ${outputCls}">${escHtml(outputText)}</div>
+        ${expectedHtml}
+        <div class="card-footer">
+          <span></span>
+          <span>${wc}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Run ───────────────────────────────────────────────────────────────────
+  async function runBench() {
+    const scenario = document.querySelector('input[name="scenario"]:checked')?.value;
+    const models = [...document.querySelectorAll('input[name="model"]:checked')].map(el => el.value);
+    const timeout = parseInt(document.getElementById('timeout-input').value) || 30;
+    const customPrompt = document.getElementById('custom-prompt-text').value.trim();
+
+    if (!scenario) {
+      setStatus('Select a scenario', 'err');
+      return;
+    }
+    if (!models.length) {
+      setStatus('Select a model', 'err');
+      return;
+    }
+    if (scenario === 'custom' && !customPrompt) {
+      setStatus('Enter a prompt', 'err');
+      return;
+    }
+
+    // Show loading state immediately
+    const cardsRow = document.getElementById('cards-row');
+    cardsRow.style.display = 'flex';
+    cardsRow.classList.add('single');
+    cardsRow.innerHTML = renderSpinnerCards(models);
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('prompt-section').style.display = 'none';
+
+    const btn = document.getElementById('run-btn');
+    btn.disabled = true;
+    const t0 = Date.now();
+    setStatus('Running...', 'running');
+
+    try {
+      const res = await fetch('/llm-bench/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          models,
+          scenario,
+          prompt_style: _promptStyle,
+          timeout,
+          custom_prompt: customPrompt,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        setStatus(`Error: ${err.error || res.statusText}`, 'err');
+        cardsRow.innerHTML = '';
+        cardsRow.style.display = 'none';
+        document.getElementById('empty-state').style.display = 'block';
+        return;
+      }
+
+      const data = await res.json();
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+
+      // Render results
+      if (data.is_group) {
+        cardsRow.classList.remove('single');
+        cardsRow.innerHTML = renderGroupTable(data);
+      } else {
+        cardsRow.classList.add('single');
+        cardsRow.innerHTML = data.results.map(r => renderCard(r, data.expected || null)).join('');
+      }
+
+      // Show prompt block
+      const promptSection = document.getElementById('prompt-section');
+      promptSection.style.display = 'flex';
+      const promptBody = document.getElementById('prompt-body');
+      promptBody.textContent = data.prompt;
+      promptBody.classList.remove('open');
+      const promptBtn = promptSection.querySelector('.collapse-btn');
+      promptBtn.textContent = '\u25bc Show prompt';
+
+      setStatus(`Done in ${elapsed}s — ${data.timestamp}`, 'ok');
+
+    } catch (e) {
+      setStatus(`Error: ${e.message}`, 'err');
+      cardsRow.innerHTML = '';
+      cardsRow.style.display = 'none';
+      document.getElementById('empty-state').style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadModels();
+</script>
+</body>
+</html>

@@ -95,7 +95,7 @@ class TelegramService:
                 from PIL import Image
                 from io import BytesIO
                 img = Image.open(photo)
-                img = img.resize((int(img.width / 2), int(img.height / 2)), Image.LANCZOS)
+                img.thumbnail((720, 720), Image.LANCZOS)
                 buf = BytesIO()
                 img.save(buf, format='PNG')
                 buf.seek(0)
@@ -107,7 +107,7 @@ class TelegramService:
 
     @classmethod
     def get_image_for_text(cls, text: str) -> str | None:
-        from agents.persona_agent import PersonaAgent
+        from agents.persona.agent import PersonaAgent
         return PersonaAgent.get_image_for_mood(text, blocking=WAIT_FOR_MOOD_IMAGE)
 
     # ------------------------------------------------------------------ #
@@ -117,7 +117,7 @@ class TelegramService:
     @classmethod
     def _handle_text(cls, message):
         from agents.agent_service import AgentService
-        from agents.persona_agent import PersonaAgent
+        from agents.persona.agent import PersonaAgent
         from agents.memory_service import MemoryService
 
         query = message.text or ''
@@ -155,7 +155,7 @@ class TelegramService:
         history = cls._format_history()
 
         # Resolve current mood once so both text generation and image selection are consistent
-        from agents.persona_states import MOOD_MODIFIERS
+        from agents.persona.states import MOOD_MODIFIERS
         state_data = PersonaAgent.get_current_state()
         current_key = state_data.get('state', '')
         parts = current_key.rsplit('_', 1)

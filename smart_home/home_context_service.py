@@ -6,6 +6,7 @@ import threading
 import config
 
 SECRETS_PATH = os.path.join('env', 'secrets', 'mqtt.json')
+AIC_PERSIST_PATH = os.path.join('env', 'last_known_aic.json')
 PRESENCE_TIMEOUT = 120      # seconds without update → consider away
 PRESENCE_ABSENT_RSSI = -95  # RSSI below this = not in range
 PRESENCE_HOME_CONFIRM = 60  # seconds RSSI must stay present before marking as arrived
@@ -49,6 +50,34 @@ class HomeContextService:
     _aic_updated: float = 0.0
 
     @classmethod
+    def _load_persisted(cls):
+        try:
+            with open(AIC_PERSIST_PATH) as f:
+                data = json.load(f)
+            cls._voc = data.get('voc')
+            cls._nox = data.get('nox')
+            cls._indoor_temp = data.get('indoor_temp')
+            cls._indoor_humidity = data.get('indoor_humidity')
+            print("[HomeContext] Loaded persisted AIC values from disk.")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"[HomeContext] Could not load persisted AIC values: {e}")
+
+    @classmethod
+    def _save_aic(cls):
+        try:
+            with open(AIC_PERSIST_PATH, 'w') as f:
+                json.dump({
+                    'voc': cls._voc,
+                    'nox': cls._nox,
+                    'indoor_temp': cls._indoor_temp,
+                    'indoor_humidity': cls._indoor_humidity,
+                }, f)
+        except Exception as e:
+            print(f"[HomeContext] Could not persist AIC values: {e}")
+
+    @classmethod
     def register_on_arrive(cls, fn):
         cls._on_arrive_callbacks.append(fn)
 
@@ -58,6 +87,7 @@ class HomeContextService:
 
     @classmethod
     def start(cls):
+        cls._load_persisted()
         broker = config.Config.MQTT_BROKER.removeprefix('mqtt://').removeprefix('mqtts://')
         if not broker:
             print("[HomeContext] MQTT_BROKER not set in config — presence/AIC disabled (will always assume home).")
@@ -120,6 +150,7 @@ class HomeContextService:
                     humidity = data.get('humidity')
                     if humidity is not None:
                         cls._indoor_humidity = float(humidity)
+                    cls._save_aic()
             except Exception:
                 pass
 

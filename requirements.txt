@@ -22,4 +22,6 @@ soundfile>=0.12.1
 Pillow>=10.0.0
 pyTelegramBotAPI>=4.14.0
 spotipy>=2.23.0
+portalocker>=2.3.0
+pywebview>=4.4.1
 # chatterbox-tts

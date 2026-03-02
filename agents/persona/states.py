@@ -31,6 +31,7 @@ MOOD_MODIFIERS = {
     "annoyed":    "slight frown, arms crossed, exasperated sidelong glance",
     "melancholy": "(downcast eyes:1.2), faint trembling lip, withdrawn hunched posture, vacant sad expression",
     "smug":       "confident smirk, one eyebrow raised, self-satisfied composed posture",
+    "lovestruck": "(heart-shaped pupils:1.5), (deep rosy red cheeks:1.4), (soft warm blush across face and nose:1.2), one hand pressed flat to chest, wide dreamy smile, slightly parted lips, soft pink sparkles drifting around her, warm rosy ambient lighting",
 }
 
 STATES = {
@@ -149,7 +150,7 @@ CONTEXT_STATES = {
         "mood_overrides": {"late_night": "tired"},
     },
     "poor_air": {
-        "prompt": "indoors, covering her nose with a handkerchief, glancing at an air quality monitor with a worried expression",
+        "prompt": "indoors, pressing her hand over her nose and mouth, head sharply recoiling backward, eyes watering and squinting with irritation, (thick greenish-grey toxic fumes filling the room:1.5), (chemical fumes surrounding her:1.3), obscured hazy background, grimacing in disgust",
         "quote": "Ugh, the air feels really stuffy...",
         "mood": "worried",
     },

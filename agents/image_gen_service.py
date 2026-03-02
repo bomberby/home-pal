@@ -2,6 +2,7 @@ import json
 import os
 import random
 import signal
+import sys
 import threading
 import time
 import warnings
@@ -10,12 +11,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoencoderKL
 
-from agents.persona_states import CHARACTER_PREFIX
+from agents.gpu_lock import GPU_LOCK_PATH, WORKER_PID_PATH, gpu_lock
+from agents.persona.states import CHARACTER_PREFIX
+from agents.realesrgan_upscaler import FINAL_SIZE as _FINAL_SIZE
+from agents.realesrgan_upscaler import upscale as _realesrgan_upscale
 
 MODEL_ID    = "Lykon/dreamshaper-8"
 VAE_ID      = "stabilityai/sd-vae-ft-mse"
@@ -24,7 +26,10 @@ OUTPUT_DIR  = Path("tmp/persona")
 HQ_QUEUE_DIR       = Path("env/hq_queue")
 UHQ_QUEUE_DIR      = Path("env/uhq_queue")
 PRIORITY_QUEUE_DIR = Path("env/priority_queue")
-GPU_LOCK_PATH      = Path("env/gpu.lock")
+WORKER_BOOT_PATH      = Path("env/hq_worker.booting")
+WORKER_HEARTBEAT_PATH = Path("env/hq_worker.heartbeat")
+
+_WORKER_HEARTBEAT_TTL = 90.0  # seconds — 3× the worker's 30s heartbeat write interval
 
 PROMPT_SUFFIX      = ", soft lighting, clean background"
 PROMPT_SUFFIX_DARK = ", clean background"
@@ -39,20 +44,13 @@ NEGATIVE_PROMPT = (
     "(extra arms:1.4), (extra legs:1.4), (fused body parts:1.3), "
     "(bad hands:1.5), (malformed hands:1.5), (mutated hands:1.5), (poorly drawn hands:1.4), "
     "(extra fingers:1.8), (missing fingers:1.7), (fused fingers:1.7), (too many fingers:1.8), (wrong number of fingers:1.8), (six fingers:1.9), (seven fingers:1.9), "
-    "(four fingers:1.8), (3 fingers:1.8), (two fingers:1.8), (too few fingers:1.8), (missing finger:1.8), "
+    "(too few fingers:1.8), (missing finger:1.8), "
     "(segmented fingers:1.6), (jointed fingers:1.6), (broken fingers:1.6), (disconnected finger:1.6), "
     "(deformed face:1.4), (disfigured face:1.4), (malformed face:1.3), (bad face:1.3), "
     "(cross-eyed:1.2), (asymmetric eyes:1.2), "
     "multiple people, duplicate, clone, watermark, signature, text, username, writing, letters, words, error, "
     "(discolored nails:1.4), (bad nails:1.3), (deformed nails:1.3)"
 )
-
-# Final output size for HQ images
-_FINAL_SIZE = 1024
-
-# Real-ESRGAN weights (fallback upscaler for legacy images with no stored prompt)
-_REALESRGAN_WEIGHTS_URL  = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth"
-_REALESRGAN_WEIGHTS_PATH = Path("env/weights/RealESRGAN_x4plus_anime_6B.pth")
 
 # Textual Inversion negative embeddings — cached to env/weights/ti/ on first load.
 # NOTE: verify these HuggingFace repo IDs before first run; community repos occasionally move.
@@ -74,81 +72,32 @@ if DEVICE == "cpu":
     print("WARNING: CUDA is not available. Image generation will run on CPU and be very slow.")
 
 
-@contextmanager
-def gpu_lock():
-    """Cross-process GPU lock shared between Flask (SD 1.5) and hq_gen_worker (SDXL)."""
-    import sys
-    GPU_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(GPU_LOCK_PATH, 'w') as f:
-        if sys.platform == 'win32':
-            import msvcrt
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-
-
 # ------------------------------------------------------------------ #
-#  Minimal RRDB network for Real-ESRGAN — no basicsr dependency       #
+#  Prompt building helpers (shared with hq_gen_worker.py)             #
 # ------------------------------------------------------------------ #
 
-class _ResidualDenseBlock(nn.Module):
-    def __init__(self, num_feat=64, num_grow_ch=32):
-        super().__init__()
-        self.conv1 = nn.Conv2d(num_feat, num_grow_ch, 3, 1, 1)
-        self.conv2 = nn.Conv2d(num_feat + num_grow_ch, num_grow_ch, 3, 1, 1)
-        self.conv3 = nn.Conv2d(num_feat + 2 * num_grow_ch, num_grow_ch, 3, 1, 1)
-        self.conv4 = nn.Conv2d(num_feat + 3 * num_grow_ch, num_grow_ch, 3, 1, 1)
-        self.conv5 = nn.Conv2d(num_feat + 4 * num_grow_ch, num_feat, 3, 1, 1)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-
-    def forward(self, x):
-        x1 = self.lrelu(self.conv1(x))
-        x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
-        x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
-        x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
-        x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
-        return x5 * 0.2 + x
+_HAND_TRIGGERS = {"hand", "finger", "wave", "hold", "keyboard", "typing", "fanning", "umbrella", "mug", "drink"}
 
 
-class _RRDB(nn.Module):
-    def __init__(self, num_feat, num_grow_ch=32):
-        super().__init__()
-        self.rdb1 = _ResidualDenseBlock(num_feat, num_grow_ch)
-        self.rdb2 = _ResidualDenseBlock(num_feat, num_grow_ch)
-        self.rdb3 = _ResidualDenseBlock(num_feat, num_grow_ch)
+def build_full_prompt(scene_prompt: str, state: str) -> str:
+    """Build the full SD prompt from a scene description and state key.
 
-    def forward(self, x):
-        out = self.rdb3(self.rdb2(self.rdb1(x)))
-        return out * 0.2 + x
+    Applies CHARACTER_PREFIX, period suffix, and conditional hand/ring anchor.
+    """
+    is_dark = state.endswith("_dark")
+    suffix = PROMPT_SUFFIX_DARK if is_dark else PROMPT_SUFFIX
+    full_prompt = f"{CHARACTER_PREFIX}, {scene_prompt}{suffix}"
+    if any(t in full_prompt.lower() for t in _HAND_TRIGGERS):
+        full_prompt += ", delicate silver ring on her finger, (five fingers:1.5)"
+    return full_prompt
 
 
-class _RRDBNet(nn.Module):
-    def __init__(self, num_in_ch, num_out_ch, scale, num_feat, num_block, num_grow_ch=32):
-        super().__init__()
-        self.conv_first = nn.Conv2d(num_in_ch, num_feat, 3, 1, 1)
-        self.body = nn.Sequential(*[_RRDB(num_feat, num_grow_ch) for _ in range(num_block)])
-        self.conv_body = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        self.conv_up1  = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        self.conv_up2  = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        self.conv_hr   = nn.Conv2d(num_feat, num_feat, 3, 1, 1)
-        self.conv_last = nn.Conv2d(num_feat, num_out_ch, 3, 1, 1)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-
-    def forward(self, x):
-        feat = self.conv_first(x)
-        feat = feat + self.conv_body(self.body(feat))
-        feat = self.lrelu(self.conv_up1(F.interpolate(feat, scale_factor=2, mode='nearest')))
-        feat = self.lrelu(self.conv_up2(F.interpolate(feat, scale_factor=2, mode='nearest')))
-        return self.conv_last(self.lrelu(self.conv_hr(feat)))
+def build_negative_prompt(state: str, ti_prefix: str) -> str:
+    """Build the negative prompt, adding dark-mode negatives when needed."""
+    is_dark = state.endswith("_dark")
+    if is_dark:
+        return f"{ti_prefix}{NEGATIVE_PROMPT}, {DARK_NEGATIVE}"
+    return f"{ti_prefix}{NEGATIVE_PROMPT}"
 
 
 def _load_textual_inversions(pipeline) -> str:
@@ -187,10 +136,11 @@ class ImageGenService:
     _in_progress: set[str] = set()
 
     # Startup upscale scheduler (legacy images with no stored prompt → Real-ESRGAN)
-    _upscaler: _RRDBNet | None = None
     _upgrade_queue: deque = deque()
     _upgrade_in_progress: set[str] = set()
     _upgrade_scheduler_started: bool = False
+    _atexit_registered: bool = False
+    _start_worker_lock: threading.Lock = threading.Lock()  # prevents concurrent spawns
 
     # ------------------------------------------------------------------ #
     #  Standard generation (SD 1.5, 512×512, fast)                       #
@@ -242,9 +192,14 @@ class ImageGenService:
         if output_path.exists():
             return output_path
 
-        # Yield GPU from the worker so the fast image can generate immediately
+        # Yield GPU from the worker so the fast image can generate immediately.
+        # Priority marker covers the TOCTOU window (worker defers before locking).
+        # Only SIGTERM the worker when it is actively holding the lock — killing it
+        # during startup (before the custom handler is installed) causes silent death
+        # and leaves a zombie that blocks re-spawning.
         cls._write_priority(state)
-        cls._signal_worker()
+        if GPU_LOCK_PATH.exists():
+            cls._signal_worker()
 
         effective_seed = seed if seed is not None else FIXED_SEED
 
@@ -256,14 +211,9 @@ class ImageGenService:
                 torch.cuda.empty_cache()
                 try:
                     generator = torch.Generator(DEVICE).manual_seed(effective_seed)
-                    is_dark = state.endswith("_dark")
-                    suffix = PROMPT_SUFFIX_DARK if is_dark else PROMPT_SUFFIX
-                    negative = f"{cls._ti_negative_prefix}{NEGATIVE_PROMPT}, {DARK_NEGATIVE}" if is_dark else f"{cls._ti_negative_prefix}{NEGATIVE_PROMPT}"
-                    full_prompt = f"{CHARACTER_PREFIX}, {scene_prompt}{suffix}"
-                    _hand_triggers = {"hand", "finger", "wave", "hold", "keyboard", "typing", "fanning", "umbrella", "mug", "drink"}
-                    if any(t in full_prompt.lower() for t in _hand_triggers):
-                        full_prompt += ", delicate silver ring on her finger, (five fingers:1.5)"
-                    print(f"[ImageGen] Generating '{state}'" + (" (dark)" if is_dark else ""))
+                    full_prompt = build_full_prompt(scene_prompt, state)
+                    negative = build_negative_prompt(state, cls._ti_negative_prefix)
+                    print(f"[ImageGen] Generating '{state}'" + (" (dark)" if state.endswith("_dark") else ""))
                     print(f"[ImageGen] Prompt: {full_prompt}")
                     prompt_embeds = cls._compel(full_prompt)
                     negative_embeds = cls._compel(negative)
@@ -404,6 +354,62 @@ class ImageGenService:
             cls._start_hq_worker()
 
     @classmethod
+    def claim_gpu(cls):
+        """Context manager: acquire the GPU for a high-priority workload.
+
+        Two-stage preemption:
+
+        1. Write a priority marker (env/priority_queue/_claim.json) so the worker
+           yields voluntarily right before calling gpu_lock().  This covers the
+           TOCTOU window where the worker is computing embeddings (CPU-only, no lock
+           held yet) and would otherwise race us to the lock — without killing it.
+
+        2. If the worker is currently holding the lock (actively doing GPU inference)
+           we send SIGTERM and restart it afterward.  Waiting for a 30-step diffusion
+           run to finish would stall the caller for minutes; killing it is justified.
+
+        Usage::
+            with ImageGenService.claim_gpu():
+                # high-priority GPU work here
+        """
+        _CLAIM_KEY = "_claim"
+
+        @contextmanager
+        def _ctx():
+            worker_killed = False
+            # Stage 1 — write priority marker before touching the lock.
+            # The worker checks for priority requests right before gpu_lock(),
+            # so this closes the TOCTOU window with zero wasted GPU work.
+            cls._write_priority(_CLAIM_KEY)
+            try:
+                # Stage 2 — if the lock is already held by another process, it must
+                # be the HQ worker (possibly with a stale PID file — don't rely on
+                # the PID file matching the lock holder).  Kill it directly.
+                # _claim_gpu() only calls us when _in_progress is empty, so Flask's
+                # own SD pipeline is never the lock holder here.
+                try:
+                    lock_pid_int = int(GPU_LOCK_PATH.read_text().strip())
+                    if lock_pid_int != os.getpid():
+                        try:
+                            os.kill(lock_pid_int, signal.SIGTERM)
+                            worker_killed = True
+                        except (ProcessLookupError, OSError):
+                            pass
+                        # Retire the PID file — the process is gone or going.
+                        WORKER_PID_PATH.unlink(missing_ok=True)
+                except (OSError, ValueError):
+                    pass
+
+                with gpu_lock():
+                    yield
+            finally:
+                cls._clear_priority(_CLAIM_KEY)
+                if worker_killed:
+                    cls._start_hq_worker()
+
+        return _ctx()
+
+    @classmethod
     def _signal_worker(cls):
         """Send SIGTERM to the HQ worker — GPU kernel dies, flock released immediately.
 
@@ -411,7 +417,7 @@ class ImageGenService:
         process after generation — the old PID stays openable (zombie/handle) on both
         Linux and Windows, which would fool the alive check otherwise.
         """
-        pid_file = Path("env/hq_worker.pid")
+        pid_file = WORKER_PID_PATH
         if not pid_file.exists():
             return
         try:
@@ -477,7 +483,8 @@ class ImageGenService:
         output_path = OUTPUT_DIR / f"{output_stem}.png"
 
         cls._write_priority(state)
-        cls._signal_worker()
+        if GPU_LOCK_PATH.exists():
+            cls._signal_worker()
 
         try:
             with cls._lock, gpu_lock():
@@ -486,14 +493,8 @@ class ImageGenService:
                 torch.cuda.empty_cache()
                 try:
                     generator = torch.Generator(DEVICE).manual_seed(effective_seed)
-                    is_dark = state.endswith("_dark")
-                    suffix = PROMPT_SUFFIX_DARK if is_dark else PROMPT_SUFFIX
-                    negative = f"{cls._ti_negative_prefix}{NEGATIVE_PROMPT}, {DARK_NEGATIVE}" if is_dark else f"{cls._ti_negative_prefix}{NEGATIVE_PROMPT}"
-                    full_prompt = f"{CHARACTER_PREFIX}, {scene_prompt}{suffix}"
-                    _hand_triggers = {"hand", "finger", "wave", "hold", "keyboard",
-                                      "typing", "fanning", "umbrella", "mug", "drink"}
-                    if any(t in full_prompt.lower() for t in _hand_triggers):
-                        full_prompt += ", delicate silver ring on her finger, (five fingers:1.5)"
+                    full_prompt = build_full_prompt(scene_prompt, state)
+                    negative = build_negative_prompt(state, cls._ti_negative_prefix)
                     print(f"[ImageGen] Experiment '{state}' tier=fast seed={effective_seed}")
                     print(f"[ImageGen] Prompt: {full_prompt}")
                     prompt_embeds = cls._compel(full_prompt)
@@ -604,10 +605,57 @@ class ImageGenService:
     # ------------------------------------------------------------------ #
 
     @classmethod
+    def _is_worker_healthy(cls) -> bool:
+        """Return True if the HQ worker has written a fresh heartbeat recently.
+
+        The worker writes env/hq_worker.heartbeat (epoch timestamp) at startup
+        and on each main loop iteration.  A stale or absent heartbeat means the
+        worker has died or not yet started.
+        """
+        if not WORKER_HEARTBEAT_PATH.exists():
+            return False
+        try:
+            age = time.time() - float(WORKER_HEARTBEAT_PATH.read_text().strip())
+            return age < _WORKER_HEARTBEAT_TTL
+        except (ValueError, OSError):
+            return False
+
+    @classmethod
+    def _cleanup_stale_lock_at_startup(cls):
+        """Remove stale coordination files left by a previous server run."""
+        if GPU_LOCK_PATH.exists():
+            print("[ImageGen][WARN] Stale gpu.lock found at startup — removing.")
+            GPU_LOCK_PATH.unlink(missing_ok=True)
+        # Heartbeat from a previous run is not meaningful for the new process
+        WORKER_HEARTBEAT_PATH.unlink(missing_ok=True)
+
+    @classmethod
+    def _cleanup_stale_priority_at_startup(cls):
+        """Called once at startup: remove all priority marker files left by a previous crash.
+
+        Priority files (env/priority_queue/*.json) are written by generate() and
+        claim_gpu() as an in-flight signal to the HQ worker.  If the Flask process
+        crashes or is killed while one is active, the file persists and the worker
+        loops forever in the priority guard rather than processing jobs.
+
+        At startup there are no active fast-gen requests, so every file here is stale.
+        """
+        if not PRIORITY_QUEUE_DIR.exists():
+            return
+        stale = list(PRIORITY_QUEUE_DIR.glob("*.json"))
+        if stale:
+            for f in stale:
+                f.unlink(missing_ok=True)
+            print(f"[ImageGen] Cleared {len(stale)} stale priority file(s) at startup.")
+
+    @classmethod
     def start_upgrade_scheduler(cls):
         if cls._upgrade_scheduler_started:
             return
         cls._upgrade_scheduler_started = True
+        cls._cleanup_stale_lock_at_startup()
+        cls._cleanup_stale_priority_at_startup()
+        WORKER_BOOT_PATH.unlink(missing_ok=True)
 
         prompt_queued = 0
         legacy_queued = 0
@@ -636,59 +684,85 @@ class ImageGenService:
 
     @classmethod
     def _start_hq_worker(cls):
-        """Start hq_gen_worker.py as a detached subprocess. Guarded by a PID file."""
-        import os
+        """Start hq_gen_worker.py as a detached subprocess. Guarded by a heartbeat file.
+
+        The threading lock prevents two rapid callers from both concluding the
+        worker is dead and each spawning a new one.
+        """
         import subprocess
-        import sys
 
-        pid_file = Path("env/hq_worker.pid")
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        with cls._start_worker_lock:
+            pid_file = WORKER_PID_PATH
+            pid_file.parent.mkdir(parents=True, exist_ok=True)
 
-        if pid_file.exists():
-            try:
-                pid = int(pid_file.read_text().strip())
-                if sys.platform == 'win32':
-                    import ctypes
-                    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
-                    alive = bool(handle)
-                    if handle:
-                        ctypes.windll.kernel32.CloseHandle(handle)
-                else:
+            # Healthy heartbeat → worker is alive, nothing to do
+            if cls._is_worker_healthy():
+                return
+
+            # No heartbeat yet — check whether we're still in the boot window
+            if WORKER_BOOT_PATH.exists():
+                try:
+                    boot_age = time.time() - WORKER_BOOT_PATH.stat().st_mtime
+                except OSError:
+                    boot_age = 0
+                if boot_age < 120:
+                    return  # still booting, give it time
+                print(f"[ImageGen] Worker stuck in boot ({boot_age:.0f}s) — respawning.")
+                if pid_file.exists():
                     try:
-                        os.kill(pid, 0)
-                        alive = True
-                    except ProcessLookupError:
-                        alive = False
-                if alive:
-                    print(f"[ImageGen] HQ worker already running (PID {pid}), skipping.")
-                    return
-            except ValueError:
-                pass  # stale/corrupt PID file
+                        pid = int(pid_file.read_text().strip())
+                        os.kill(pid, signal.SIGTERM)
+                    except (ProcessLookupError, ValueError, OSError):
+                        pass
+                pid_file.unlink(missing_ok=True)
+                WORKER_BOOT_PATH.unlink(missing_ok=True)
 
-        worker = Path(__file__).parent / "hq_gen_worker.py"
-        proc = subprocess.Popen(
-            [sys.executable, str(worker)],
-        )
-        pid_file.write_text(str(proc.pid))
-        print(f"[ImageGen] HQ worker started (PID {proc.pid}).")
+            WORKER_BOOT_PATH.write_text(str(time.time()))
+            worker = Path(__file__).parent / "hq_gen_worker.py"
+            proc = subprocess.Popen(
+                [sys.executable, str(worker)],
+            )
+            pid_file.write_text(str(proc.pid))
+            print(f"[ImageGen] HQ worker spawned (proc.pid={proc.pid}), waiting for boot confirmation.")
 
-        import atexit
-        import signal
+            # Register the atexit handler only ONCE for the lifetime of this Flask process.
+            # We must NOT capture `proc` in the closure — doing so creates a new closure per
+            # worker restart, accumulating stale atexit handlers that send SIGTERM to recycled
+            # PIDs and delete gpu.lock while the *current* worker still holds it.
+            if not cls._atexit_registered:
+                import atexit
+                import signal as _signal
 
-        def _shutdown_worker():
-            try:
-                os.kill(proc.pid, signal.SIGTERM)
-                print(f"[ImageGen] HQ worker (PID {proc.pid}) terminated.")
-            except (ProcessLookupError, OSError):
-                pass
-            pid_file.unlink(missing_ok=True)
-            GPU_LOCK_PATH.unlink(missing_ok=True)
+                _pid_file_path = pid_file  # stable Path reference; content changes with restarts
 
-        atexit.register(_shutdown_worker)
+                def _shutdown_worker():
+                    # Read the *current* PID from the file — not a stale closure value.
+                    try:
+                        current_pid = int(_pid_file_path.read_text().strip())
+                        os.kill(current_pid, _signal.SIGTERM)
+                        print(f"[ImageGen] HQ worker (PID {current_pid}) terminated.")
+                    except (ProcessLookupError, OSError):
+                        pass
+                    except ValueError:
+                        pass
+                    _pid_file_path.unlink(missing_ok=True)
+                    WORKER_BOOT_PATH.unlink(missing_ok=True)
+                    WORKER_HEARTBEAT_PATH.unlink(missing_ok=True)
+                    GPU_LOCK_PATH.unlink(missing_ok=True)
+
+                atexit.register(_shutdown_worker)
+                cls._atexit_registered = True
 
     @classmethod
     def _upgrade_loop(cls):
+        _last_worker_check = 0.0
         while True:
+            # Periodic worker health check — respawn if dead
+            now = time.time()
+            if now - _last_worker_check >= 60:
+                cls._start_hq_worker()
+                _last_worker_check = now
+
             if cls._upgrade_queue and not cls._in_progress:
                 state = cls._upgrade_queue.popleft()
                 if state in cls._upgrade_in_progress or cls._hq_path(state).exists():
@@ -698,62 +772,8 @@ class ImageGenService:
                     continue
                 cls._upgrade_in_progress.add(state)
                 try:
-                    cls._upscale(state, std_path)
+                    _realesrgan_upscale(std_path, cls._hq_path(state))
                 finally:
                     cls._upgrade_in_progress.discard(state)
             else:
                 time.sleep(5)
-
-    @classmethod
-    def _upscale(cls, state: str, src: Path):
-        """Real-ESRGAN upscale for legacy images with no stored prompt."""
-        from PIL import Image
-        img = Image.open(src).convert('RGB')
-        cls._upscale_image(state, img)
-
-    @classmethod
-    def _upscale_image(cls, state: str, img):
-        model = cls._get_upscaler()
-        if model is None:
-            return
-        try:
-            import numpy as np
-            tensor = torch.from_numpy(
-                np.array(img).astype('float32') / 255.0
-            ).permute(2, 0, 1).unsqueeze(0)
-            with torch.no_grad():
-                output = model(tensor).squeeze(0).permute(1, 2, 0).clamp(0, 1)
-            from PIL import Image
-            result = Image.fromarray((output.numpy() * 255).astype('uint8'))
-            if result.width > _FINAL_SIZE or result.height > _FINAL_SIZE:
-                result = result.resize((_FINAL_SIZE, _FINAL_SIZE), Image.LANCZOS)
-            dst = cls._hq_path(state)
-            tmp = dst.with_suffix('.tmp.png')
-            result.save(tmp)
-            tmp.rename(dst)
-            print(f"[ImageGen] HQ saved: {dst.name} ({dst.stat().st_size // 1024}KB)")
-        except Exception as e:
-            print(f"[ImageGen] Upscale failed for '{state}': {e}")
-
-    @classmethod
-    def _get_upscaler(cls) -> _RRDBNet | None:
-        if cls._upscaler is not None:
-            return cls._upscaler
-        _REALESRGAN_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if not _REALESRGAN_WEIGHTS_PATH.exists():
-            print("[ImageGen] Downloading RealESRGAN anime weights (~17MB)...")
-            import urllib.request
-            try:
-                urllib.request.urlretrieve(_REALESRGAN_WEIGHTS_URL, _REALESRGAN_WEIGHTS_PATH)
-                print("[ImageGen] RealESRGAN weights downloaded.")
-            except Exception as e:
-                print(f"[ImageGen] Failed to download weights: {e}")
-                return None
-        model = _RRDBNet(num_in_ch=3, num_out_ch=3, scale=4, num_feat=64, num_block=6, num_grow_ch=32)
-        state_dict = torch.load(_REALESRGAN_WEIGHTS_PATH, map_location='cpu', weights_only=True)
-        state_dict = state_dict.get('params_ema') or state_dict.get('params') or state_dict
-        model.load_state_dict(state_dict, strict=True)
-        model.eval()
-        cls._upscaler = model
-        print("[ImageGen] RealESRGAN upscaler ready.")
-        return cls._upscaler

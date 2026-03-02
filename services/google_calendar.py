@@ -23,6 +23,8 @@ def _load_calendar_colors() -> dict:
         print(f"[Calendar] Could not read {CALENDAR_COLORS_PATH}: {e}")
         return {}
 
+TOKEN_PATH = os.path.join('env', 'secrets', 'token.pickle')
+
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 REDIRECT_URI = f'http://127.0.0.1:5000/oauth/oauth2callback'
 
@@ -35,9 +37,9 @@ flow = Flow.from_client_secrets_file(
 google_calendar = Blueprint('google_calendar', __name__, template_folder='templates')
 
 def credentials_from_storage():
-    if not os.path.exists('token.pickle'):
+    if not os.path.exists(TOKEN_PATH):
         raise FileNotFoundError("Google Calendar not authorised — visit /oauth/login to connect.")
-    return pickle.load(open('token.pickle', 'rb'))
+    return pickle.load(open(TOKEN_PATH, 'rb'))
 
 @google_calendar.route('/oauth/login')
 def login():
@@ -54,7 +56,7 @@ def oauth2callback():
     credentials = flow.credentials
 
     # Save the credentials for future use
-    with open('token.pickle', 'wb') as token:
+    with open(TOKEN_PATH, 'wb') as token:
         pickle.dump(credentials, token)
 
     return redirect(url_for('main.index'))
@@ -114,11 +116,12 @@ def get_all_events():
     sorted_events = sorted(all_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
     
     events = sorted_events
-    with open('token.pickle', 'wb') as token:
+    with open(TOKEN_PATH, 'wb') as token:
         pickle.dump(credentials, token)
     return events
     
 @google_calendar.route('/calendar/list')
+@cache.cached(timeout=60 * 60)
 def list_calendars():
     """List all Google Calendars with their IDs — useful for populating calendar_colors.json."""
     credentials = credentials_from_storage()

@@ -102,14 +102,23 @@
       border-bottom: 0;
     }
 
-    #persona-img {
+    #persona-img-wrap {
       margin-top: -10px;
       width: 100%;
       flex: 1 1 0;
       min-height: 0;
-      object-fit: contain;
-      object-position: top center;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    #persona-img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       display: block;
+      border-radius: 12px;
       -webkit-mask-image: linear-gradient(to bottom, black 65%, transparent 100%);
       mask-image: linear-gradient(to bottom, black 65%, transparent 100%);
       transition: opacity 0.6s ease;
@@ -130,7 +139,7 @@
         <div class="persona-bubble" id="persona-bubble"></div>
         <button id="persona-speak-btn" class="persona-speak-btn" title="Speak" style="display:none;">🔊</button>
       </div>
-      <img id="persona-img" alt="persona">
+      <div id="persona-img-wrap"><img id="persona-img" alt="persona"></div>
     </div>
   </div>
   <script src="{{ url_for('static', filename='js/persona.js') }}"></script>

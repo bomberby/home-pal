@@ -31,6 +31,9 @@ def create_app():
 
     return app
 
+import services.log_config as log_config
+log_config.configure()
+
 if __name__ == '__main__':
     ollama_service.start()
     HomeContextService.start()

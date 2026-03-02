@@ -1,6 +1,6 @@
 import re
 from flask import Blueprint, jsonify, send_file, render_template, request
-from agents.persona_agent import PersonaAgent
+from agents.persona.agent import PersonaAgent
 from agents.image_gen_service import ImageGenService
 
 persona_bp = Blueprint('persona', __name__)
@@ -47,3 +47,20 @@ def get_persona_image(state):
     if not path or not path.exists():
         return jsonify({'error': 'Image not found'}), 404
     return send_file(path, mimetype='image/png')
+
+
+@persona_bp.route('/persona/desktop')
+def persona_desktop():
+    return render_template('persona_desktop.html')
+
+
+@persona_bp.route('/persona/chat', methods=['POST'])
+def persona_chat():
+    data  = request.get_json(silent=True) or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({'error': 'query is required'}), 400
+
+    result    = PersonaAgent.handle_chat(query, data.get('history') or [])
+    image_url = f'/persona/image/{result["image_state"]}' if result.get('image_state') else None
+    return jsonify({'reply': result['reply'], 'image_url': image_url})

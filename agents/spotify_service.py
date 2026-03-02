@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from pathlib import Path
 
 SPOTIFY_SECRETS_PATH = Path('env/secrets/spotify.json')
@@ -7,8 +8,13 @@ SPOTIFY_TOKEN_PATH = Path('env/secrets/spotify_token.json')
 SPOTIFY_SCOPE = 'user-modify-playback-state user-read-playback-state'
 
 
+_DEVICES_CACHE_TTL = 30.0  # seconds
+
+
 class SpotifyService:
     _sp = None
+    _devices_cache: list | None = None
+    _devices_cache_ts: float = 0.0
 
     @classmethod
     def _get_client(cls):
@@ -90,7 +96,13 @@ class SpotifyService:
         if not sp:
             return None
         try:
-            devices = (sp.devices() or {}).get('devices', [])
+            now = time.time()
+            if cls._devices_cache is not None and now - cls._devices_cache_ts < _DEVICES_CACHE_TTL:
+                devices = cls._devices_cache
+            else:
+                devices = (sp.devices() or {}).get('devices', [])
+                cls._devices_cache = devices
+                cls._devices_cache_ts = now
             if not devices:
                 return None
             active = next((d for d in devices if d.get('is_active')), None)
@@ -109,7 +121,10 @@ class SpotifyService:
         if not sp:
             return "Spotify is not connected. Visit /spotify/auth to set it up."
         try:
-            sp.start_playback(device_id=cls._resolve_device_id())
+            device_id = cls._resolve_device_id()
+            if device_id is None:
+                return "No active Spotify device found. Open Spotify on a device first."
+            sp.start_playback(device_id=device_id)
             return "Music playing."
         except Exception as e:
             return f"Couldn't resume playback: {e}"

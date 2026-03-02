@@ -37,7 +37,7 @@ class TimerService:
         print(f"[Timer] '{label}' done!")
         try:
             from services.telegram_service import TelegramService
-            from agents.persona_agent import PersonaAgent
+            from agents.persona.agent import PersonaAgent
             situation = f"a countdown timer just finished: '{label}'"
             message = PersonaAgent.generate_reactive_line(situation)
             TelegramService.send_message(message, photo=TelegramService.get_image_for_text(message))

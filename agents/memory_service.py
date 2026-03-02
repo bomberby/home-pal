@@ -162,7 +162,13 @@ class MemoryService:
             "\n".join(f"- {m['content']}" for m in existing)
             if existing else "None yet."
         )
-        prompt = (
+        try:
+            from agents.image_gen_service import ImageGenService
+            if ImageGenService._in_progress:
+                return  # GPU busy; skip this exchange
+        except Exception:
+            pass
+        system = (
             "The exchange below has a 'User:' line and a 'Persona:' line. "
             "You must read ONLY the User's words to decide what to store. "
             "The Persona's reply is context only — never extract facts from it.\n\n"
@@ -182,23 +188,24 @@ class MemoryService:
             "- If there is any doubt or the fact is speculative, output: none\n\n"
             "Transient tag rules:\n"
             "Facts that will expire must end with a [transient:TIMEFRAME] tag. Choose the timeframe that best matches how long the fact stays relevant:\n"
+            "  - [transient:1h]  — expires in about an hour (just woke up, about to leave, currently cooking, just arrived home)\n"
             "  - [transient:1d]  — expires in roughly a day (today's weather, tonight's plans, current mood)\n"
             "  - [transient:3d]  — expires in a few days (a cold, a short trip, this week's work situation)\n"
             "  - [transient:7d]  — expires in about a week (a week-long trip, a project due this week)\n"
             "  - [transient:monday] etc. — expires at the start of that weekday (use when the fact is tied to a specific day)\n"
             "  - [transient] alone — use only if you cannot estimate the duration; defaults to 1 day\n"
             "MUST tag transient:\n"
+            "  - Immediate current activity: 'The user just woke up [transient:1h]', 'The user is about to head out [transient:1h]'\n"
             "  - Current weather: 'It is raining today [transient:1d]'\n"
             "  - Current user state: 'The user is feeling tired today [transient:1d]', 'The user is sick with a cold [transient:3d]'\n"
             "  - Plans and travel: 'The user is going out tonight [transient:1d]', 'The user is traveling to Tokyo this week [transient:7d]'\n"
             "  - Work situation: 'The user is working from home today [transient:1d]'\n"
             "  - Recent one-off events: 'The user just finished a big project [transient:3d]'\n"
             "Do NOT tag [transient] for: stable preferences, permanent traits, recurring patterns.\n\n"
-            f"Already known:\n{existing_text}\n\n"
-            f"Exchange:\n{exchange}\n\n"
             "Output ONE short sentence starting with 'The user' (with [transient:TIMEFRAME] if applicable), or exactly 'none'. Do not explain."
         )
-        result = call_ollama(prompt, timeout=15)
+        user = f"Already known:\n{existing_text}\n\nExchange:\n{exchange}"
+        result = call_ollama(user, timeout=15, system=system)
         if not result:
             return
         content, ttl_hours = cls._parse_llm_memory(result)
@@ -218,7 +225,13 @@ class MemoryService:
             "\n".join(f"- {m['content']}" for m in existing)
             if existing else "None yet."
         )
-        prompt = (
+        try:
+            from agents.image_gen_service import ImageGenService
+            if ImageGenService._in_progress:
+                return  # GPU busy; skip this observation
+        except Exception:
+            pass
+        system = (
             "You are a memory assistant for a home dashboard persona. "
             "Given what is already known about the user and a new system observation, "
             "decide if the observation reveals a new recurring habit or pattern worth remembering long-term.\n\n"
@@ -227,11 +240,10 @@ class MemoryService:
             "- Do not store anything already covered by what is known.\n"
             "- Do not speculate about what an observation might imply — only state what was directly observed as a pattern.\n"
             "- If there is any doubt, output: none\n\n"
-            f"Already known:\n{existing_text}\n\n"
-            f"New observation: {situation}\n\n"
             "Output ONE short sentence or exactly 'none'. Do not explain your reasoning."
         )
-        result = call_ollama(prompt, timeout=15)
+        user = f"Already known:\n{existing_text}\n\nNew observation: {situation}"
+        result = call_ollama(user, timeout=15, system=system)
         if not result:
             return
         content, _ = cls._parse_llm_memory(result)

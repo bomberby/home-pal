@@ -20,7 +20,7 @@ class AgentService:
     def handle_query(cls, query: str) -> str:
         """Process the user query and return a text response."""
         q = query.lower().strip()
-        words = set(q.split())
+        words = set(re.sub(r'[^\w\s]', '', q).split())
 
         # --- Help ---
         if words.intersection({"help", "commands", "capabilities"}) or (
@@ -95,7 +95,7 @@ class AgentService:
     @classmethod
     def _handle_spotify(cls, query: str, q: str) -> str:
         from agents.spotify_service import SpotifyService
-        words = set(q.split())
+        words = set(re.sub(r'[^\w\s]', '', q).split())
 
         # What's playing?
         if 'playing' in words and words.intersection({"what", "what's", "now", "currently"}):
@@ -279,4 +279,4 @@ class AgentService:
 def _spotify_intent(q: str) -> bool:
     """Return True if the query is about Spotify / music playback."""
     music_words = {'play', 'pause', 'resume', 'skip', 'music', 'spotify', 'song', 'track', 'playing', 'previous'}
-    return bool(music_words & set(q.split()))
+    return bool(music_words & set(re.sub(r'[^\w\s]', '', q).split()))

@@ -7,9 +7,10 @@ import os
 import requests
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2"
+OLLAMA_MODEL = "qwen3:8b"
 
 _process = None
+_call_lock = threading.Lock()  # serialises concurrent Ollama requests
 
 
 def start():
@@ -74,18 +75,36 @@ def _ensure_model():
         print(f"Ollama: model check/pull failed: {e}")
 
 
-def call_ollama(prompt: str, timeout: int = 10) -> str | None:
-    """POST a prompt to Ollama and return the stripped response text, or None on failure."""
+def call_ollama(prompt: str, timeout: int = 10, *, system: str | None = None,
+                skip_if_busy: bool = False) -> str | None:
+    """POST to Ollama /api/chat and return the response text, or None on failure.
+
+    skip_if_busy: if True and another call is already in flight, return None immediately
+    rather than queuing. Use for low-priority callers that have a fallback (quote, suggestion,
+    mood classify). High-priority callers (notifications, Telegram replies) leave it False.
+    """
+    acquired = _call_lock.acquire(blocking=not skip_if_busy)
+    if not acquired:
+        return None
     try:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        body = {"model": OLLAMA_MODEL, "messages": messages, "stream": False, "think": False}
+
         resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json=body,
             timeout=timeout,
         )
-        return resp.json().get("response", "").strip() or None
+        return resp.json().get("message", {}).get("content", "").strip() or None
     except Exception as e:
         print(f"[Ollama] Call failed: {e}")
         return None
+    finally:
+        _call_lock.release()
 
 
 def _stop():
