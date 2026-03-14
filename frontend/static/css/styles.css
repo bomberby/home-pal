@@ -376,6 +376,27 @@ button:hover {
   user-select: none;
 }
 
+.aq-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 8px;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: #aaa;
+}
+.aq-badge[data-level="good"]      { background: #3db55e; }
+.aq-badge[data-level="fair"]      { background: #a0bf00; color: #fff; }
+.aq-badge[data-level="moderate"]  { background: #e09000; }
+.aq-badge[data-level="poor"]      { background: #d94040; }
+.aq-badge[data-level="very poor"] { background: #8b3acf; }
+.aq-badge[data-level="hazardous"] { background: #6b0000; }
+
+body.dark .aq-badge[data-level="fair"] { color: #fff; }
+
 /* -----------------------------------------------------
    CALENDAR LIST
 ----------------------------------------------------- */

@@ -219,13 +219,29 @@ function renderWeatherChart(ctx, labels, datasets, annotations) {
 
 
 
-function initiateWeather() {
-  fetchWeather();
-  renderLocationsInModal();
-  setInterval(fetchWeather, 300000); // Refresh every 5 minutes (300000 milliseconds)
+async function fetchAirQuality() {
+  try {
+    const res = await fetch('/weather/air-quality');
+    if (!res.ok) return;
+    const { aqi, label, pm25 } = await res.json();
+    const badge = document.getElementById('outdoor-aq');
+    if (!badge) return;
+    let text = `Air: ${label.charAt(0).toUpperCase() + label.slice(1)}`;
+    if (pm25 != null) text += ` · PM2.5 ${pm25.toFixed(1)}`;
+    badge.textContent = text;
+    badge.dataset.level = label;
+    badge.title = `European AQI: ${aqi}`;
+  } catch (_) {}
 }
 
-// window.addEventListener("load", initiateWeather);
+function initiateWeather() {
+  fetchWeather();
+  fetchAirQuality();
+  renderLocationsInModal();
+  setInterval(fetchWeather, 300000); // Refresh every 5 minutes (300000 milliseconds)
+  setInterval(fetchAirQuality, 300000);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initiateWeather();
 });

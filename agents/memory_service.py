@@ -54,11 +54,12 @@ class MemoryService:
             json.dump(memories, f, indent=2)
 
     @classmethod
-    def add(cls, content: str, source: str, ttl_hours: int | None = None):
+    def add(cls, content: str, source: str, ttl_hours: int | None = None, subject: str = 'user'):
         memories = cls.load()
         entry = {
             "content":    content,
             "source":     source,
+            "subject":    subject,
             "timestamp":  datetime.now().isoformat(timespec='seconds'),
             "expires_at": (datetime.now() + timedelta(hours=ttl_hours)).isoformat(timespec='seconds')
                           if ttl_hours is not None else None,
@@ -68,7 +69,7 @@ class MemoryService:
             memories = memories[-cls.MAX_MEMORIES:]
         cls._save(memories)
         ttl_str = f" (expires in {ttl_hours}h)" if ttl_hours else ""
-        print(f"[Memory] Stored ({source}){ttl_str}: {content}")
+        print(f"[Memory] Stored ({source}/{subject}){ttl_str}: {content}")
 
     @classmethod
     def get_all(cls) -> list[dict]:
@@ -94,8 +95,14 @@ class MemoryService:
         memories = cls.load()
         if not memories:
             return ""
-        items = " • ".join(m["content"] for m in memories)
-        return f"Background awareness (silently inform your tone and personalisation only — never reference these facts, ask about them, suggest alternatives based on them, or comment on what you know about the user): {items}"
+        user_mems    = [m["content"] for m in memories if m.get('subject', 'user') == 'user']
+        persona_mems = [m["content"] for m in memories if m.get('subject') == 'persona']
+        parts = []
+        if user_mems:
+            parts.append("About the user (background only — never mention directly): " + "; ".join(user_mems))
+        if persona_mems:
+            parts.append("About yourself (your own traits — use naturally): " + "; ".join(persona_mems))
+        return "\n".join(parts)
 
     @classmethod
     def has_similar(cls, keyword: str) -> bool:
@@ -211,6 +218,50 @@ class MemoryService:
         content, ttl_hours = cls._parse_llm_memory(result)
         if content:
             cls.add(content, "user", ttl_hours=ttl_hours)
+
+    @classmethod
+    def extract_persona_from_exchange(cls, exchange: str) -> None:
+        """Ask Ollama if the Persona's reply reveals an opinion, commitment, or expressed trait worth storing."""
+        from agents.ollama_service import call_ollama
+        existing = cls.load()
+        existing_text = (
+            "\n".join(f"- {m['content']}" for m in existing if m.get('subject') == 'persona')
+            or "None yet."
+        )
+        try:
+            from agents.image_gen_service import ImageGenService
+            if ImageGenService._in_progress:
+                return
+        except Exception:
+            pass
+        system = (
+            "The exchange below has a 'User:' line and a 'Persona:' line. "
+            "Read ONLY the Persona's words. Decide if they reveal a stable opinion, preference, or concrete commitment worth storing.\n\n"
+            "WHAT TO STORE:\n"
+            "  - A stable opinion or preference: 'I find cold weather suffocating'\n"
+            "  - A concrete commitment: 'I promised to remind them about the project'\n"
+            "  - A recurring expressed trait: 'I get restless on quiet evenings'\n\n"
+            "WHAT NOT TO STORE:\n"
+            "  Persona relaying facts ('It will be 12°C tomorrow') → none\n"
+            "  Persona giving greetings or short reactions → none\n"
+            "  In-the-moment dramatic flair that is not a stable trait → none\n"
+            "  Persona: 'cold nights make me feel trapped in this warm box~ but I suppose you find peace in the silence... since you love them' → none  "
+            "(the trapped feeling is in-the-moment roleplay, not a confirmed stable opinion; the rest is about the user, not the persona)\n\n"
+            "DISTILLATION RULES:\n"
+            "- Distil the core trait in your own words — never quote or paraphrase the Persona's reply.\n"
+            "- Strip all references to the user from your output entirely. The output must describe only the persona.\n"
+            "- If the persona's statement is mixed with user observations, extract only the persona's part, or output: none if nothing clean remains.\n"
+            "- Only store if the trait is stable and clearly expressed — if there is any doubt, output: none\n\n"
+            "Transient tag: append [transient:TIMEFRAME] only for time-bound commitments.\n\n"
+            "Output ONE short sentence starting with 'I', or exactly 'none'. Do not explain."
+        )
+        user = f"Already known about me:\n{existing_text}\n\nExchange:\n{exchange}"
+        result = call_ollama(user, timeout=15, system=system)
+        if not result:
+            return
+        content, ttl_hours = cls._parse_llm_memory(result)
+        if content:
+            cls.add(content, "persona", ttl_hours=ttl_hours, subject='persona')
 
     @classmethod
     def observe(cls, situation: str) -> None:

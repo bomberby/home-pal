@@ -51,9 +51,12 @@ class NotificationService:
         ).start()
 
         from agents.persona.agent import PersonaAgent
+        from agents.persona.context import PersonaContext
+        from agents.persona.states import CONTEXT_STATES
         from services.telegram_service import TelegramService
-        text = PersonaAgent.generate_reactive_line("the user just arrived home, you can comment about the situation as if you returned together, "
-            "or as if the user returned and you welcome him back")
+        period = PersonaContext.get_time_period()
+        mood = PersonaContext.get_mood(CONTEXT_STATES["welcome"], period)
+        text = PersonaAgent._generate_briefing(mood)
         TelegramService.send_message(text, photo=TelegramService.get_image_for_text(text))
 
     @classmethod

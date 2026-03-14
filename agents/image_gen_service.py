@@ -7,14 +7,17 @@ import threading
 import time
 import warnings
 from collections import deque
-from contextlib import contextmanager
 from pathlib import Path
 
 import torch
 from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoencoderKL
 
-from agents.gpu_lock import GPU_LOCK_PATH, WORKER_PID_PATH, gpu_lock
+from agents.gpu_lock import (
+    GPU_LOCK_PATH, WORKER_PID_PATH, WORKER_HEARTBEAT_PATH,
+    claim_gpu as _claim_gpu_impl,
+    cleanup_stale_lock, cleanup_stale_priority,
+)
 from agents.persona.states import CHARACTER_PREFIX
 from agents.realesrgan_upscaler import FINAL_SIZE as _FINAL_SIZE
 from agents.realesrgan_upscaler import upscale as _realesrgan_upscale
@@ -23,11 +26,9 @@ MODEL_ID    = "Lykon/dreamshaper-8"
 VAE_ID      = "stabilityai/sd-vae-ft-mse"
 FIXED_SEED  = 42
 OUTPUT_DIR  = Path("tmp/persona")
-HQ_QUEUE_DIR       = Path("env/hq_queue")
-UHQ_QUEUE_DIR      = Path("env/uhq_queue")
-PRIORITY_QUEUE_DIR = Path("env/priority_queue")
+HQ_QUEUE_DIR          = Path("env/hq_queue")
+UHQ_QUEUE_DIR         = Path("env/uhq_queue")
 WORKER_BOOT_PATH      = Path("env/hq_worker.booting")
-WORKER_HEARTBEAT_PATH = Path("env/hq_worker.heartbeat")
 
 _WORKER_HEARTBEAT_TTL = 90.0  # seconds — 3× the worker's 30s heartbeat write interval
 
@@ -67,6 +68,8 @@ warnings.filterwarnings("ignore", message="Pipelines loaded with `dtype=torch.fl
 
 DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
 TORCH_DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
+
+PIPELINE_EVICT_IDLE = 60.0  # seconds idle before unloading pipeline from RAM
 
 if DEVICE == "cpu":
     print("WARNING: CUDA is not available. Image generation will run on CPU and be very slow.")
@@ -135,12 +138,15 @@ class ImageGenService:
     _lock = threading.Lock()
     _in_progress: set[str] = set()
 
+    _evict_timer: threading.Timer | None = None
+    _evict_lock = threading.Lock()  # protects _evict_timer only; never held alongside _lock
+
     # Startup upscale scheduler (legacy images with no stored prompt → Real-ESRGAN)
     _upgrade_queue: deque = deque()
     _upgrade_in_progress: set[str] = set()
     _upgrade_scheduler_started: bool = False
     _atexit_registered: bool = False
-    _start_worker_lock: threading.Lock = threading.Lock()  # prevents concurrent spawns
+    _start_worker_lock: threading.Lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     #  Standard generation (SD 1.5, 512×512, fast)                       #
@@ -173,6 +179,35 @@ class ImageGenService:
         return cls._pipeline
 
     @classmethod
+    def _cancel_eviction(cls) -> None:
+        with cls._evict_lock:
+            if cls._evict_timer is not None:
+                cls._evict_timer.cancel()
+                cls._evict_timer = None
+
+    @classmethod
+    def _schedule_eviction(cls) -> None:
+        with cls._evict_lock:
+            if cls._evict_timer is not None:
+                cls._evict_timer.cancel()
+            cls._evict_timer = threading.Timer(PIPELINE_EVICT_IDLE, cls._evict_pipeline)
+            cls._evict_timer.daemon = True
+            cls._evict_timer.start()
+
+    @classmethod
+    def _evict_pipeline(cls) -> None:
+        import gc
+        with cls._lock:
+            if cls._pipeline is not None:
+                cls._pipeline = None
+                cls._compel = None
+                gc.collect()
+                torch.cuda.empty_cache()
+                print(f"[ImageGen] Pipeline evicted from RAM after {PIPELINE_EVICT_IDLE:.0f}s idle.")
+        with cls._evict_lock:
+            cls._evict_timer = None
+
+    @classmethod
     def get_cached(cls, state: str) -> Path | None:
         """Return best available cached image: UHQ > HQ > standard."""
         uhq = cls._uhq_path(state)
@@ -185,6 +220,54 @@ class ImageGenService:
         return std if std.exists() else None
 
     @classmethod
+    def _run_fast(cls, state: str, scene_prompt: str, seed: int,
+                  output_path: Path, tier: str = "fast") -> None:
+        """Synchronously generate a 512×512 image and save to output_path.
+
+        Acquires both the threading lock (prevents concurrent Flask generations)
+        and the cross-process GPU lock (yields to this call over the HQ worker).
+        Moves the pipeline to CPU and clears VRAM cache on exit.
+        """
+        cls._cancel_eviction()
+        with cls._lock, _claim_gpu_impl(key=state, on_worker_killed=cls._start_hq_worker):
+            pipe = cls._get_pipeline()
+            pipe.to(DEVICE)
+            torch.cuda.empty_cache()
+            try:
+                generator = torch.Generator(DEVICE).manual_seed(seed)
+                full_prompt = build_full_prompt(scene_prompt, state)
+                negative = build_negative_prompt(state, cls._ti_negative_prefix)
+                print(f"[ImageGen] Generating '{state}' tier={tier} seed={seed}" +
+                      (" (dark)" if state.endswith("_dark") else ""))
+                print(f"[ImageGen] Prompt: {full_prompt}")
+                prompt_embeds = cls._compel(full_prompt)
+                negative_embeds = cls._compel(negative)
+                [prompt_embeds, negative_embeds] = cls._compel.pad_conditioning_tensors_to_same_length(
+                    [prompt_embeds, negative_embeds]
+                )
+                image = pipe(
+                    prompt_embeds=prompt_embeds,
+                    negative_prompt_embeds=negative_embeds,
+                    num_inference_steps=20,
+                    guidance_scale=6.5,
+                    clip_skip=2,
+                    generator=generator,
+                    width=512,
+                    height=512,
+                ).images[0]
+                from PIL.PngImagePlugin import PngInfo
+                info = PngInfo()
+                info.add_text("scene_prompt", scene_prompt)
+                info.add_text("tier", tier)
+                info.add_text("seed", str(seed))
+                image.save(output_path, pnginfo=info)
+            finally:
+                # Release VRAM so the HQ worker can use it
+                pipe.to('cpu')
+                torch.cuda.empty_cache()
+        cls._schedule_eviction()
+
+    @classmethod
     def generate(cls, state: str, scene_prompt: str, seed: int | None = None) -> Path:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = OUTPUT_DIR / f"{state}.png"
@@ -192,59 +275,14 @@ class ImageGenService:
         if output_path.exists():
             return output_path
 
-        # Yield GPU from the worker so the fast image can generate immediately.
-        # Priority marker covers the TOCTOU window (worker defers before locking).
-        # Only SIGTERM the worker when it is actively holding the lock — killing it
-        # during startup (before the custom handler is installed) causes silent death
-        # and leaves a zombie that blocks re-spawning.
-        cls._write_priority(state)
-        if GPU_LOCK_PATH.exists():
-            cls._signal_worker()
-
         effective_seed = seed if seed is not None else FIXED_SEED
 
         cls._in_progress.add(state)
         try:
-            with cls._lock, gpu_lock():
-                pipe = cls._get_pipeline()
-                pipe.to(DEVICE)
-                torch.cuda.empty_cache()
-                try:
-                    generator = torch.Generator(DEVICE).manual_seed(effective_seed)
-                    full_prompt = build_full_prompt(scene_prompt, state)
-                    negative = build_negative_prompt(state, cls._ti_negative_prefix)
-                    print(f"[ImageGen] Generating '{state}'" + (" (dark)" if state.endswith("_dark") else ""))
-                    print(f"[ImageGen] Prompt: {full_prompt}")
-                    prompt_embeds = cls._compel(full_prompt)
-                    negative_embeds = cls._compel(negative)
-                    [prompt_embeds, negative_embeds] = cls._compel.pad_conditioning_tensors_to_same_length(
-                        [prompt_embeds, negative_embeds]
-                    )
-                    image = pipe(
-                        prompt_embeds=prompt_embeds,
-                        negative_prompt_embeds=negative_embeds,
-                        num_inference_steps=20,
-                        guidance_scale=6.5,
-                        clip_skip=2,
-                        generator=generator,
-                        width=512,
-                        height=512,
-                    ).images[0]
-                    from PIL.PngImagePlugin import PngInfo
-                    info = PngInfo()
-                    info.add_text("scene_prompt", scene_prompt)
-                    info.add_text("tier", "fast")
-                    info.add_text("seed", str(effective_seed))
-                    image.save(output_path, pnginfo=info)
-                finally:
-                    # Release VRAM so the HQ worker can use it
-                    pipe.to('cpu')
-                    torch.cuda.empty_cache()
+            cls._run_fast(state, scene_prompt, effective_seed, output_path)
         finally:
             cls._in_progress.discard(state)
-            cls._clear_priority(state)
 
-        # Queue HQ job for the worker process
         if not cls._hq_path(state).exists():
             cls._queue_hq(state, scene_prompt, seed=effective_seed)
 
@@ -336,98 +374,15 @@ class ImageGenService:
         print(f"[ImageGen] UHQ job queued: {job_stem}")
 
     # ------------------------------------------------------------------ #
-    #  Priority queue + worker interrupt                                  #
+    #  GPU preemption                                                     #
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def _write_priority(cls, state: str):
-        PRIORITY_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-        pf = PRIORITY_QUEUE_DIR / f"{state}.json"
-        if not pf.exists():
-            pf.write_text(json.dumps({"state": state}))
-
-    @classmethod
-    def _clear_priority(cls, state: str):
-        (PRIORITY_QUEUE_DIR / f"{state}.json").unlink(missing_ok=True)
-        remaining = list(PRIORITY_QUEUE_DIR.glob("*.json")) if PRIORITY_QUEUE_DIR.exists() else []
-        if not remaining:
-            cls._start_hq_worker()
-
-    @classmethod
     def claim_gpu(cls):
-        """Context manager: acquire the GPU for a high-priority workload.
-
-        Two-stage preemption:
-
-        1. Write a priority marker (env/priority_queue/_claim.json) so the worker
-           yields voluntarily right before calling gpu_lock().  This covers the
-           TOCTOU window where the worker is computing embeddings (CPU-only, no lock
-           held yet) and would otherwise race us to the lock — without killing it.
-
-        2. If the worker is currently holding the lock (actively doing GPU inference)
-           we send SIGTERM and restart it afterward.  Waiting for a 30-step diffusion
-           run to finish would stall the caller for minutes; killing it is justified.
-
-        Usage::
-            with ImageGenService.claim_gpu():
-                # high-priority GPU work here
-        """
-        _CLAIM_KEY = "_claim"
-
-        @contextmanager
-        def _ctx():
-            worker_killed = False
-            # Stage 1 — write priority marker before touching the lock.
-            # The worker checks for priority requests right before gpu_lock(),
-            # so this closes the TOCTOU window with zero wasted GPU work.
-            cls._write_priority(_CLAIM_KEY)
-            try:
-                # Stage 2 — if the lock is already held by another process, it must
-                # be the HQ worker (possibly with a stale PID file — don't rely on
-                # the PID file matching the lock holder).  Kill it directly.
-                # _claim_gpu() only calls us when _in_progress is empty, so Flask's
-                # own SD pipeline is never the lock holder here.
-                try:
-                    lock_pid_int = int(GPU_LOCK_PATH.read_text().strip())
-                    if lock_pid_int != os.getpid():
-                        try:
-                            os.kill(lock_pid_int, signal.SIGTERM)
-                            worker_killed = True
-                        except (ProcessLookupError, OSError):
-                            pass
-                        # Retire the PID file — the process is gone or going.
-                        WORKER_PID_PATH.unlink(missing_ok=True)
-                except (OSError, ValueError):
-                    pass
-
-                with gpu_lock():
-                    yield
-            finally:
-                cls._clear_priority(_CLAIM_KEY)
-                if worker_killed:
-                    cls._start_hq_worker()
-
-        return _ctx()
-
-    @classmethod
-    def _signal_worker(cls):
-        """Send SIGTERM to the HQ worker — GPU kernel dies, flock released immediately.
-
-        The PID file is deleted here so _start_hq_worker() knows to spawn a fresh
-        process after generation — the old PID stays openable (zombie/handle) on both
-        Linux and Windows, which would fool the alive check otherwise.
-        """
-        pid_file = WORKER_PID_PATH
-        if not pid_file.exists():
-            return
-        try:
-            pid = int(pid_file.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-            print(f"[ImageGen] Sent SIGTERM to worker (PID {pid}) — priority request.")
-        except (ProcessLookupError, ValueError, OSError):
-            pass
-        finally:
-            pid_file.unlink(missing_ok=True)
+        return _claim_gpu_impl(
+            skip_if=lambda: bool(cls._in_progress),
+            on_worker_killed=cls._start_hq_worker,
+        )
 
     # ------------------------------------------------------------------ #
     #  PNG tEXt metadata                                                  #
@@ -435,17 +390,17 @@ class ImageGenService:
 
     @classmethod
     def _read_meta(cls, state: str) -> dict | None:
-        """Read scene_prompt and tier from the fast PNG's tEXt chunks."""
-        path = OUTPUT_DIR / f"{state}.png"
-        if not path.exists():
-            return None
-        try:
-            from PIL import Image
-            with Image.open(path) as img:
-                text = getattr(img, 'text', {})
-                return text if text.get('scene_prompt') else None
-        except Exception:
-            return None
+        """Read scene_prompt from the best available PNG's tEXt chunks.
+
+        Falls back to HQ then UHQ when the fast image doesn't exist, so
+        states that were only generated at higher tiers can still participate
+        in re-roll and experiment workflows.
+        """
+        for path in [OUTPUT_DIR / f"{state}.png", cls._hq_path(state), cls._uhq_path(state)]:
+            meta = cls._read_meta_path(path)
+            if meta:
+                return meta
+        return None
 
     # ------------------------------------------------------------------ #
     #  Experiment generation (admin one-shot)                             #
@@ -481,49 +436,7 @@ class ImageGenService:
         # fast — synchronous
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = OUTPUT_DIR / f"{output_stem}.png"
-
-        cls._write_priority(state)
-        if GPU_LOCK_PATH.exists():
-            cls._signal_worker()
-
-        try:
-            with cls._lock, gpu_lock():
-                pipe = cls._get_pipeline()
-                pipe.to(DEVICE)
-                torch.cuda.empty_cache()
-                try:
-                    generator = torch.Generator(DEVICE).manual_seed(effective_seed)
-                    full_prompt = build_full_prompt(scene_prompt, state)
-                    negative = build_negative_prompt(state, cls._ti_negative_prefix)
-                    print(f"[ImageGen] Experiment '{state}' tier=fast seed={effective_seed}")
-                    print(f"[ImageGen] Prompt: {full_prompt}")
-                    prompt_embeds = cls._compel(full_prompt)
-                    negative_embeds = cls._compel(negative)
-                    [prompt_embeds, negative_embeds] = cls._compel.pad_conditioning_tensors_to_same_length(
-                        [prompt_embeds, negative_embeds]
-                    )
-                    image = pipe(
-                        prompt_embeds=prompt_embeds,
-                        negative_prompt_embeds=negative_embeds,
-                        num_inference_steps=20,
-                        guidance_scale=6.5,
-                        clip_skip=2,
-                        generator=generator,
-                        width=512,
-                        height=512,
-                    ).images[0]
-                    from PIL.PngImagePlugin import PngInfo
-                    info = PngInfo()
-                    info.add_text("scene_prompt", scene_prompt)
-                    info.add_text("tier", "experiment_fast")
-                    info.add_text("seed", str(effective_seed))
-                    image.save(output_path, pnginfo=info)
-                finally:
-                    pipe.to('cpu')
-                    torch.cuda.empty_cache()
-        finally:
-            cls._clear_priority(state)
-
+        cls._run_fast(state, scene_prompt, effective_seed, output_path, tier="experiment_fast")
         return output_path
 
     @classmethod
@@ -561,17 +474,7 @@ class ImageGenService:
 
     @classmethod
     def invalidate(cls, state: str, tier: str = 'all') -> tuple[Path | None, int]:
-        """Re-roll a tier with a fresh random seed (always produces a different result).
-
-        Each tier is invalidated independently — other tiers are untouched.
-
-        tier='fast': delete fast PNG, regenerate synchronously with new seed.
-        tier='mq':   delete MQ PNG, re-queue MQ with new seed.
-        tier='uhq':  delete UHQ PNG, re-queue UHQ with new seed.
-        tier='all':  delete all three, regenerate fast with new seed, queue MQ.
-
-        Returns (path, new_seed) — path is None for worker-queued tiers.
-        """
+        """Re-roll a tier with a fresh random seed. Returns (path, new_seed) — path is None for worker-queued tiers."""
         meta = cls._read_meta(state)
         if not meta:
             raise ValueError(f"No metadata for state '{state}'")
@@ -621,40 +524,12 @@ class ImageGenService:
             return False
 
     @classmethod
-    def _cleanup_stale_lock_at_startup(cls):
-        """Remove stale coordination files left by a previous server run."""
-        if GPU_LOCK_PATH.exists():
-            print("[ImageGen][WARN] Stale gpu.lock found at startup — removing.")
-            GPU_LOCK_PATH.unlink(missing_ok=True)
-        # Heartbeat from a previous run is not meaningful for the new process
-        WORKER_HEARTBEAT_PATH.unlink(missing_ok=True)
-
-    @classmethod
-    def _cleanup_stale_priority_at_startup(cls):
-        """Called once at startup: remove all priority marker files left by a previous crash.
-
-        Priority files (env/priority_queue/*.json) are written by generate() and
-        claim_gpu() as an in-flight signal to the HQ worker.  If the Flask process
-        crashes or is killed while one is active, the file persists and the worker
-        loops forever in the priority guard rather than processing jobs.
-
-        At startup there are no active fast-gen requests, so every file here is stale.
-        """
-        if not PRIORITY_QUEUE_DIR.exists():
-            return
-        stale = list(PRIORITY_QUEUE_DIR.glob("*.json"))
-        if stale:
-            for f in stale:
-                f.unlink(missing_ok=True)
-            print(f"[ImageGen] Cleared {len(stale)} stale priority file(s) at startup.")
-
-    @classmethod
     def start_upgrade_scheduler(cls):
         if cls._upgrade_scheduler_started:
             return
         cls._upgrade_scheduler_started = True
-        cls._cleanup_stale_lock_at_startup()
-        cls._cleanup_stale_priority_at_startup()
+        cleanup_stale_lock()
+        cleanup_stale_priority()
         WORKER_BOOT_PATH.unlink(missing_ok=True)
 
         prompt_queued = 0
@@ -757,7 +632,6 @@ class ImageGenService:
     def _upgrade_loop(cls):
         _last_worker_check = 0.0
         while True:
-            # Periodic worker health check — respawn if dead
             now = time.time()
             if now - _last_worker_check >= 60:
                 cls._start_hq_worker()

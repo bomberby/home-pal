@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 class _MuteRoutes(logging.Filter):
-    _PATTERN = re.compile(r'"[A-Z]+ (?:/health|/sh/led|/persona/status|/cam/) HTTP/')
+    _PATTERN = re.compile(r'"[A-Z]+ (?:/health|/sh/led|/persona|/cam/) HTTP/')
 
     def filter(self, record):
         return not self._PATTERN.search(record.getMessage())

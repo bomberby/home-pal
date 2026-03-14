@@ -82,12 +82,6 @@ class WeatherAgentService:
       return hours_since_start, end_index
 
   @staticmethod
-  def _extract_tomorrow_window(first_time: datetime.datetime, tomorrow_start: datetime.datetime, tomorrow_end: datetime.datetime):
-      hours_since_start = int((tomorrow_start - first_time).total_seconds() // 3600)
-      hours_remaining_tomorrow = int((tomorrow_end - tomorrow_start).total_seconds() // 3600)
-      return hours_since_start, hours_since_start + hours_remaining_tomorrow
-
-  @staticmethod
   def _summarize_temperature(temps: list) -> str:
       max_temp = max(temps)
       min_temp = min(temps)

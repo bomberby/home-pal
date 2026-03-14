@@ -4,6 +4,7 @@ import requests
 from flask import Blueprint, jsonify, render_template, request
 
 from agents.ollama_service import OLLAMA_BASE_URL
+from agents.lmstudio_service import LM_STUDIO_BASE_URL
 from agents.persona.agent import PersonaAgent
 from agents.persona.states import CHARACTER_VOICE, MOOD_MODIFIERS
 
@@ -366,41 +367,59 @@ SCENARIOS = {
 }
 
 
-# ── Ollama callers ─────────────────────────────────────────────────────────────
+# ── Callers ────────────────────────────────────────────────────────────────────
 
-def _call_flat(model: str, prompt: str, timeout: int) -> dict:
+def _call_flat(backend: str, model: str, prompt: str, timeout: int) -> dict:
     t0 = time.monotonic()
     try:
-        r = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False, "think": False},
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        out = r.json().get("response", "").strip()
-        return {"model": model, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
+        if backend == 'lmstudio':
+            r = requests.post(
+                f"{LM_STUDIO_BASE_URL}/chat/completions",
+                json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            out = r.json()["choices"][0]["message"]["content"].strip()
+        else:
+            r = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "think": False},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            out = r.json().get("response", "").strip()
+        return {"model": model, "backend": backend, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
     except requests.exceptions.Timeout:
-        return {"model": model, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
+        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
     except Exception as e:
-        return {"model": model, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
+        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
 
 
-def _call_chat(model: str, system: str, user: str, timeout: int) -> dict:
+def _call_chat(backend: str, model: str, system: str, user: str, timeout: int) -> dict:
     t0 = time.monotonic()
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
     try:
-        r = requests.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json={"model": model, "messages": messages, "stream": False, "think": False},
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        out = r.json().get("message", {}).get("content", "").strip()
-        return {"model": model, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
+        if backend == 'lmstudio':
+            r = requests.post(
+                f"{LM_STUDIO_BASE_URL}/chat/completions",
+                json={"model": model, "messages": messages, "stream": False},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            out = r.json()["choices"][0]["message"]["content"].strip()
+        else:
+            r = requests.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json={"model": model, "messages": messages, "stream": False, "think": False},
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            out = r.json().get("message", {}).get("content", "").strip()
+        return {"model": model, "backend": backend, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
     except requests.exceptions.Timeout:
-        return {"model": model, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
+        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
     except Exception as e:
-        return {"model": model, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
+        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -412,24 +431,37 @@ def llm_bench():
 
 @llm_bench_bp.route('/llm-bench/models')
 def llm_bench_models():
+    models = []
+    errors = []
+
     try:
         r = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
         r.raise_for_status()
-        raw = r.json().get("models", [])
-        models = sorted(
-            [{"name": m["name"], "size_gb": round(m.get("size", 0) / 1e9, 1)} for m in raw],
-            key=lambda m: m["name"],
-        )
-        return jsonify({"models": models})
+        for m in r.json().get("models", []):
+            models.append({"name": m["name"], "size_gb": round(m.get("size", 0) / 1e9, 1), "backend": "ollama"})
     except Exception as e:
-        return jsonify({"models": [], "error": str(e)})
+        errors.append(f"Ollama: {e}")
+
+    try:
+        r = requests.get(f"{LM_STUDIO_BASE_URL}/models", timeout=3)
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            models.append({"name": m["id"], "size_gb": None, "backend": "lmstudio"})
+    except Exception as e:
+        errors.append(f"LM Studio: {e}")
+
+    models.sort(key=lambda m: m["name"])
+    result = {"models": models}
+    if errors and not models:
+        result["error"] = "; ".join(errors)
+    return jsonify(result)
 
 
 @llm_bench_bp.route('/llm-bench/run', methods=['POST'])
 def llm_bench_run():
     data = request.get_json(force=True)
 
-    models = data.get("models", [])
+    models = data.get("models", [])  # list of {name, backend}
     scenario = data.get("scenario", "")
     prompt_style = data.get("prompt_style", "flat")
     timeout = int(data.get("timeout", _DEFAULT_TIMEOUT))
@@ -458,11 +490,11 @@ def llm_bench_run():
             prompt_parts.append(f"── {case['row_label']} ──\n{prompt_display}")
 
             case_results = []
-            for model in models:
+            for m in models:
                 if prompt_style == "flat":
-                    case_results.append(_call_flat(model, flat_prompt, timeout))
+                    case_results.append(_call_flat(m["backend"], m["name"], flat_prompt, timeout))
                 else:
-                    case_results.append(_call_chat(model, system, user, timeout))
+                    case_results.append(_call_chat(m["backend"], m["name"], system, user, timeout))
 
             rows.append({
                 "row_label": case["row_label"],
@@ -495,11 +527,11 @@ def llm_bench_run():
         prompt_display = f"[SYSTEM]\n{system}\n\n[USER]\n{user}" if system else f"[USER]\n{user}"
 
     results = []
-    for model in models:
+    for m in models:
         if prompt_style == "flat":
-            results.append(_call_flat(model, flat_prompt, timeout))
+            results.append(_call_flat(m["backend"], m["name"], flat_prompt, timeout))
         else:
-            results.append(_call_chat(model, system, user, timeout))
+            results.append(_call_chat(m["backend"], m["name"], system, user, timeout))
 
     return jsonify({
         "is_group": False,

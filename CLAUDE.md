@@ -17,11 +17,19 @@ Server runs at `http://0.0.0.0:5000/`. `DEBUG=True` in `config.py` so Flask auto
 
 ## Installing dependencies
 
+**torch must be installed first with the correct CUDA index** (GPU is GTX 1070, SM 6.1/Pascal — torch 2.4+ drops SM 6.1 support):
+
+```bash
+pip install torch==2.3.1 torchaudio==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+```
+
+Then install the rest:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-`torch` / `torchaudio` are required for Coqui TTS. `diffusers` / `transformers` / `accelerate` are required for Stable Diffusion image generation. Ollama must be installed separately as a native application (see README).
+`diffusers` / `transformers` / `accelerate` are required for Stable Diffusion image generation. Ollama must be installed separately as a native application (see README).
 
 ## Architecture
 

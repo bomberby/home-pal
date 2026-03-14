@@ -116,8 +116,6 @@ class TelegramService:
 
     @classmethod
     def _handle_text(cls, message):
-        from agents.agent_service import AgentService
-        from agents.persona.agent import PersonaAgent
         from agents.memory_service import MemoryService
 
         query = message.text or ''
@@ -152,27 +150,12 @@ class TelegramService:
             return
 
         # Normal message handling
-        history = cls._format_history()
-
-        # Resolve current mood once so both text generation and image selection are consistent
-        from agents.persona.states import MOOD_MODIFIERS
-        state_data = PersonaAgent.get_current_state()
-        current_key = state_data.get('state', '')
-        parts = current_key.rsplit('_', 1)
-        mood = parts[1] if len(parts) == 2 and parts[1] in MOOD_MODIFIERS else None
-
-        result = AgentService.handle_query(query)
-        print(f"[Telegram] Agent result: {result!r}")
-        if result:
-            reply = PersonaAgent.generate_factual_relay(query, result, history=history, mood=mood)
-        else:
-            reply = PersonaAgent.generate_open_answer(query, history=history, mood=mood)
+        from agents.chat_service import ChatService
+        result = ChatService.handle(query, list(cls._history))
+        reply = result['reply']
         cls._history.append((query, reply))
         cls.send_message(reply, photo=cls.get_image_for_text(reply))
-
-        # Extract and store memory in background (non-blocking)
-        exchange = f"User: {query}\nPersona: {reply}"
-        threading.Thread(target=MemoryService.extract_from_exchange, args=(exchange,), daemon=True).start()
+        # Memory extraction is handled by ChatService.handle()
 
     @classmethod
     def _handle_callback(cls, call):

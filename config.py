@@ -19,6 +19,7 @@ class Config:
     SECRET_KEY = _resolve_secret_key()
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' # Allow local network oauth for calendar
     DEBUG = True
+    LLM_BACKEND = 'lmstudio'  # 'ollama' | 'lmstudio'
     JSON_AS_ASCII = False
     WEATHER_LOCATION = 'Tokyo'
     TRAIN_STATION_URL = "https://www.jreast-timetable.jp/en/timetable/list0303.html"

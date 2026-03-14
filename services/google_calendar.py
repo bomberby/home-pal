@@ -108,18 +108,12 @@ def get_all_events():
             event['calendar_color_rgb'] = rgb         # [r,g,b] for LED / PIL
             event['calendar_purpose']   = cfg.get('purpose', '')
             all_events.append(event)
-    
 
-    
-    # Sort events by start time
-    # Ensure safe access to 'dateTime' and 'date'
     sorted_events = sorted(all_events, key=lambda x: (x['start'].get('dateTime') or x['start'].get('date')))
-    
-    events = sorted_events
     with open(TOKEN_PATH, 'wb') as token:
         pickle.dump(credentials, token)
-    return events
-    
+    return sorted_events
+
 @google_calendar.route('/calendar/list')
 @cache.cached(timeout=60 * 60)
 def list_calendars():

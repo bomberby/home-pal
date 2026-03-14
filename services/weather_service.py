@@ -1,5 +1,5 @@
 from datetime import datetime
-from models import WeatherData, WeatherLocation
+from models import WeatherData, WeatherLocation, AirQualityData
 from playhouse.shortcuts import model_to_dict
 from config import Config
 import requests
@@ -198,3 +198,94 @@ def geo_from_city_name(city):
             geo['latitude'] = 35.7203484
             geo['longitude'] = 139.7831018
     return geo
+
+
+# ── Outdoor Air Quality ────────────────────────────────────────────────────────
+
+_AQI_LABELS = [
+    (20,  "good"),
+    (40,  "fair"),
+    (60,  "moderate"),
+    (80,  "poor"),
+    (100, "very poor"),
+]
+
+def aqi_label(value: float) -> str:
+    """European AQI scale label (0-20 good … 100+ hazardous)."""
+    for threshold, label in _AQI_LABELS:
+        if value <= threshold:
+            return label
+    return "hazardous"
+
+
+def fetch_air_quality(city: str) -> AirQualityData | None:
+    geo = geo_from_city_name(city)
+    url = (
+        f"https://air-quality-api.open-meteo.com/v1/air-quality"
+        f"?latitude={geo['latitude']}&longitude={geo['longitude']}"
+        f"&hourly=european_aqi,pm2_5,pm10&timezone=auto"
+    )
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            print(f"[AirQuality] Failed to fetch for {city}: HTTP {response.status_code}")
+            return None
+        data = response.json()
+        hourly = data['hourly']
+        hourly_aqi  = json.dumps(hourly.get('european_aqi', []))
+        hourly_pm25 = json.dumps(hourly.get('pm2_5', []))
+        hourly_pm10 = json.dumps(hourly.get('pm10', []))
+        first_time  = hourly['time'][0]
+        try:
+            record = AirQualityData.get(AirQualityData.city == city)
+            record.latitude    = geo['latitude']
+            record.longitude   = geo['longitude']
+            record.hourly_aqi  = hourly_aqi
+            record.hourly_pm25 = hourly_pm25
+            record.hourly_pm10 = hourly_pm10
+            record.first_time  = first_time
+            record.last_updated = datetime.now()
+            record.save()
+        except AirQualityData.DoesNotExist:
+            record = AirQualityData.create(
+                city=city,
+                latitude=geo['latitude'],
+                longitude=geo['longitude'],
+                hourly_aqi=hourly_aqi,
+                hourly_pm25=hourly_pm25,
+                hourly_pm10=hourly_pm10,
+                first_time=first_time,
+            )
+        return record
+    except Exception as e:
+        print(f"[AirQuality] Error fetching for {city}: {e}")
+        return None
+
+
+def get_current_air_quality(city: str) -> tuple[float, float, float] | None:
+    """Return (aqi, pm25, pm10) for the current hour, fetching/refreshing as needed."""
+    try:
+        record = AirQualityData.get(AirQualityData.city == city)
+        if (datetime.now() - record.last_updated).total_seconds() > CACHE_DURATION:
+            record = fetch_air_quality(city)
+    except AirQualityData.DoesNotExist:
+        record = fetch_air_quality(city)
+
+    if not record:
+        return None
+    try:
+        aqi_values  = json.loads(record.hourly_aqi)
+        pm25_values = json.loads(record.hourly_pm25)
+        pm10_values = json.loads(record.hourly_pm10)
+        first_time  = datetime.fromisoformat(record.first_time) if isinstance(record.first_time, str) else record.first_time
+        offset = max(0, int((datetime.now() - first_time).total_seconds() // 3600))
+        if offset >= len(aqi_values):
+            return None
+        return (
+            aqi_values[offset],
+            pm25_values[offset] if offset < len(pm25_values) else None,
+            pm10_values[offset] if offset < len(pm10_values) else None,
+        )
+    except Exception as e:
+        print(f"[AirQuality] Error reading cached data for {city}: {e}")
+        return None

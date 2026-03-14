@@ -41,7 +41,8 @@ const char* serverDevicePath = "/sh/weather_dashboard";
 // const char* serverWeatherUrl = "http://192.168.1.232:5000/weather";
 const char* serverWeatherPath = "/weather";
 const char* serverImagePath = "/image.bin";
-#define TIME_TO_SLEEP    30           // Minutes to sleep
+#define SLEEP_MINUTES       10         // Sleep duration between wake cycles
+#define FULL_WAKE_INTERVAL   3         // Every Nth wake is a full wake (WiFi + e-ink)
 #define MIN_TO_uS_FACTOR 60000000ULL  // Conversion factor for minutes to microseconds
 
 #ifndef ZIGBEE_MODE_ED
@@ -56,9 +57,13 @@ SensirionI2CSgp41 sgp41;
 VOCGasIndexAlgorithm voc_algo;
 NOxGasIndexAlgorithm nox_algo;
 Preferences preferences;
+RTC_DATA_ATTR uint32_t wakeCount = 0;
+RTC_DATA_ATTR int lastKnownRssi = -100;
+RTC_DATA_ATTR uint8_t wifiChannel = 0;
+RTC_DATA_ATTR uint8_t wifiBSSID[6] = {0, 0, 0, 0, 0, 0};
 
 SystemMetrics currentMetrics;
-void performAirQualityMeasurement(int32_t &vocIndex, int32_t &noxIndex);
+void performAirQualityMeasurement(float &vocResult, float &noxResult, bool saveBaseline);
 
 
 void setup() {
@@ -70,6 +75,10 @@ void setup() {
 
   storeBatteryMeasurment();
 
+  bool isFullWake = (wakeCount % FULL_WAKE_INTERVAL == 0);
+  wakeCount++;
+  Serial.printf("[Wake #%lu] %s\n", (unsigned long)(wakeCount - 1),
+                isFullWake ? "FULL" : "LIGHT");
 
   Wire.begin(I2C_SDA, I2C_SCL);
   if (!bme.begin(0x76, &Wire)) { 
@@ -83,37 +92,62 @@ void setup() {
   // SGP logic
   float voc = 0;
   float nox = 0;
-  performAirQualityMeasurement(voc, nox);
+  performAirQualityMeasurement(voc, nox, isFullWake);
 
   // Results are now available for MQTT (our next step)
   Serial.printf("\nFinal Reported VOC: %.2f\n", voc);
   Serial.printf("Final Reported NOx: %.2f\n", nox);
 
   if (currentMetrics.batteryPercent < 5 && !currentMetrics.externalPower) {
-      Serial.println(F("BATTERY CRITICAL. Skipping WiFi/Screen."));
-      // report the emergency status, then sleep
-    } else {  
-    // Connect WiFi & Sync Time
-    WiFi.begin(ssid, password);
+    Serial.println(F("BATTERY CRITICAL. Skipping WiFi/Screen."));
+    currentMetrics.wifiRssi = -100;
+    // report the emergency status, then sleep
+  } else if (isFullWake) {
+    // Connect WiFi — use cached channel/BSSID to skip scanning if available
+    if (wifiChannel != 0) {
+      Serial.printf("[WiFi] Fast connect: channel %d\n", wifiChannel);
+      WiFi.begin(ssid, password, wifiChannel, wifiBSSID);
+    } else {
+      WiFi.begin(ssid, password);
+    }
     int attempt = 0;
     while (WiFi.status() != WL_CONNECTED && attempt < 20) {
       delay(500);
       attempt++;
     }
-    
+
+    // If fast connect failed (router changed channel etc.), retry with full scan
+    if (WiFi.status() != WL_CONNECTED && wifiChannel != 0) {
+      Serial.println(F("[WiFi] Fast connect failed — retrying with full scan"));
+      wifiChannel = 0;
+      WiFi.disconnect(true);
+      delay(100);
+      WiFi.begin(ssid, password);
+      attempt = 0;
+      while (WiFi.status() != WL_CONNECTED && attempt < 20) {
+        delay(500);
+        attempt++;
+      }
+    }
+
     if (WiFi.status() == WL_CONNECTED) {
+      // Cache channel and BSSID for next wake
+      wifiChannel = WiFi.channel();
+      memcpy(wifiBSSID, WiFi.BSSID(), 6);
+
       configTime(32400, 0, "pool.ntp.org"); // UTC+9 for Japan
       struct tm timeinfo;
       getLocalTime(&timeinfo); // Sync internal clock
 
       // SNAPSHOT RSSI while WiFi is active
-      currentMetrics.wifiRssi = WiFi.RSSI();
+      lastKnownRssi = WiFi.RSSI();
+      currentMetrics.wifiRssi = lastKnownRssi;
 
       // 2. Fetch and Render
       performUpdate();
 
       // 3. Prepare Display for Sleep
-      hibernateDisplay(); 
+      hibernateDisplay();
     }
     else {
       currentMetrics.wifiRssi = -100.0;
@@ -123,6 +157,9 @@ void setup() {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     delay(100); // Let the radio stabilize
+  } else {
+    Serial.println(F("LIGHT wake — skipping WiFi/display."));
+    currentMetrics.wifiRssi = lastKnownRssi;  // report last known, not -100
   }
 
   Serial.println(F("Starting Zigbee Report..."));
@@ -131,7 +168,7 @@ void setup() {
   // 4. Set Sleep Timer and Enter Deep Sleep
   Serial.println("Entering Deep Sleep...");
   digitalWrite(LED_BUILTIN, LOW); // LED OFF - Sleep starting
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * MIN_TO_uS_FACTOR);
+  esp_sleep_enable_timer_wakeup(SLEEP_MINUTES * MIN_TO_uS_FACTOR);
   esp_deep_sleep_start();
 }
 
@@ -306,7 +343,7 @@ void storeBatteryMeasurment()
 /**
  * Handles initialization, stabilization, and reading of SGP41.
  */
-void performAirQualityMeasurement(float &vocResult, float &noxResult) {
+void performAirQualityMeasurement(float &vocResult, float &noxResult, bool saveBaseline) {
     vocResult = 0.0;
     noxResult = 0.0;
 
@@ -370,8 +407,10 @@ void performAirQualityMeasurement(float &vocResult, float &noxResult) {
       }
 
 
-      preferences.putFloat("base_voc", newBaseVoc);
-      preferences.putFloat("base_nox", newBaseNox);
+      if (saveBaseline) {
+        preferences.putFloat("base_voc", newBaseVoc);
+        preferences.putFloat("base_nox", newBaseNox);
+      }
 
       currentMetrics.vocIndex = vocResult;
       currentMetrics.noxIndex = noxResult;

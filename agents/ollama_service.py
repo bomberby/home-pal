@@ -14,7 +14,11 @@ _call_lock = threading.Lock()  # serialises concurrent Ollama requests
 
 
 def start():
-    """Start ollama serve if not already running, then ensure the model is available."""
+    import config
+    if config.Config.LLM_BACKEND == 'lmstudio':
+        from agents import lmstudio_service
+        lmstudio_service.check_ready()
+        return
     _start_server()
     if _wait_for_ready():
         threading.Thread(target=_ensure_model, daemon=True).start()
@@ -76,7 +80,11 @@ def _ensure_model():
 
 
 def call_ollama(prompt: str, timeout: int = 10, *, system: str | None = None,
-                skip_if_busy: bool = False) -> str | None:
+                skip_if_busy: bool = False, think: bool = False) -> str | None:
+    import config
+    if config.Config.LLM_BACKEND == 'lmstudio':
+        from agents import lmstudio_service
+        return lmstudio_service.call_lmstudio(prompt, timeout, system=system, skip_if_busy=skip_if_busy)
     """POST to Ollama /api/chat and return the response text, or None on failure.
 
     skip_if_busy: if True and another call is already in flight, return None immediately
@@ -92,7 +100,7 @@ def call_ollama(prompt: str, timeout: int = 10, *, system: str | None = None,
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        body = {"model": OLLAMA_MODEL, "messages": messages, "stream": False, "think": False}
+        body = {"model": OLLAMA_MODEL, "messages": messages, "stream": False, "think": think}
 
         resp = requests.post(
             f"{OLLAMA_BASE_URL}/api/chat",

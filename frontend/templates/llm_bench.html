@@ -371,6 +371,18 @@
       color: #555;
     }
 
+    /* Backend tags */
+    .backend-tag {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-left: 5px;
+      font-weight: normal;
+    }
+    .backend-tag.ollama   { background: #0d1e2e; color: #9af; border: 1px solid #1a3a4a; }
+    .backend-tag.lmstudio { background: #1e0d2e; color: #c9f; border: 1px solid #3a1a4a; }
+
     /* Empty state */
     #empty-state {
       color: #555;
@@ -410,7 +422,7 @@
     <div class="sidebar-section">
       <h2>Models</h2>
       <div id="model-list"><span style="color:#555;font-size:11px;">Loading...</span></div>
-      <div id="model-error">Could not reach Ollama.<br>Is it running?</div>
+      <div id="model-error">Could not reach Ollama or LM Studio.<br>Is either running?</div>
     </div>
 
     <div class="sidebar-section">
@@ -494,9 +506,9 @@
 
       container.innerHTML = data.models.map(m => `
         <label class="option-row">
-          <input type="checkbox" name="model" value="${escHtml(m.name)}">
-          ${escHtml(m.name)}
-          <span class="size-hint">${m.size_gb}GB</span>
+          <input type="checkbox" name="model" value="${escHtml(m.name)}" data-backend="${escHtml(m.backend)}">
+          ${escHtml(m.name)}<span class="backend-tag ${escHtml(m.backend)}">${m.backend === 'lmstudio' ? 'lms' : 'ol'}</span>
+          <span class="size-hint">${m.size_gb ? m.size_gb + 'GB' : ''}</span>
         </label>
       `).join('');
 
@@ -536,7 +548,7 @@
     return models.map(m => `
       <div class="result-card loading">
         <div class="card-header">
-          <span class="card-model">${escHtml(m)}</span>
+          <span class="card-model">${escHtml(m.name)}<span class="backend-tag ${escHtml(m.backend)}">${m.backend === 'lmstudio' ? 'lms' : 'ol'}</span></span>
           <span class="card-latency pending">—</span>
         </div>
         <div class="card-output loading-text">Running...</div>
@@ -561,7 +573,7 @@
     // Header row
     html += '<div class="gt-corner"></div>';
     for (const m of models) {
-      html += `<div class="gt-col-header">${escHtml(m)}</div>`;
+      html += `<div class="gt-col-header">${escHtml(m.name)}<span class="backend-tag ${escHtml(m.backend)}">${m.backend === 'lmstudio' ? 'lms' : 'ol'}</span></div>`;
     }
 
     // Data rows
@@ -646,7 +658,7 @@
     return `
       <div class="result-card">
         <div class="card-header">
-          <span class="card-model">${escHtml(r.model)}</span>
+          <span class="card-model">${escHtml(r.model)}<span class="backend-tag ${escHtml(r.backend)}">${r.backend === 'lmstudio' ? 'lms' : 'ol'}</span></span>
           <span class="card-latency ${latCls}">${latSec}s</span>
         </div>
         <div class="card-output ${outputCls}">${escHtml(outputText)}</div>
@@ -662,7 +674,8 @@
   // ── Run ───────────────────────────────────────────────────────────────────
   async function runBench() {
     const scenario = document.querySelector('input[name="scenario"]:checked')?.value;
-    const models = [...document.querySelectorAll('input[name="model"]:checked')].map(el => el.value);
+    const models = [...document.querySelectorAll('input[name="model"]:checked')]
+      .map(el => ({ name: el.value, backend: el.dataset.backend }));
     const timeout = parseInt(document.getElementById('timeout-input').value) || 30;
     const customPrompt = document.getElementById('custom-prompt-text').value.trim();
 

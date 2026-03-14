@@ -10,7 +10,8 @@ from agents.persona.states import (
 )
 from agents.ollama_service import call_ollama as _ollama_call
 
-QUOTE_TTL = 10 * 60  # seconds
+QUOTE_TTL = 10 * 60      # seconds — successful quote/suggestion lifetime
+QUOTE_RETRY_BACKOFF = 60  # seconds — retry interval after a failed/skipped LLM call
 
 
 class PersonaAgent:
@@ -27,10 +28,6 @@ class PersonaAgent:
             state_data = CONTEXT_STATES["hub_offline"]
             return PersonaAgent._make_response("hub_offline", state_data, state_data["situation"])
 
-        # Absent: nobody home — skip everything
-        if not HomeContextService.is_home():
-            return {"state": "absent", "prompt": None, "quote": None, "suggestion": None}
-
         # Welcome: just arrived home — generate a contextual briefing
         if HomeContextService.is_just_arrived():
             period = PersonaContext.get_time_period()
@@ -44,11 +41,17 @@ class PersonaAgent:
         return PersonaAgent._get_contextual_state()
 
     @staticmethod
+    def is_absent() -> bool:
+        from smart_home.home_context_service import HomeContextService
+        import config
+        if config.Config.MQTT_BROKER and not HomeContextService.is_connected():
+            return False
+        return not HomeContextService.is_home()
+
+    @staticmethod
     def _get_contextual_state() -> dict:
         """State driven purely by environment — air quality, calendar, weather, time.
-
-        Ignores presence entirely. Used directly by get_current_state() when the
-        user is home, and as a fallback image source when absent.
+        Ignores presence entirely.
         """
         from smart_home.home_context_service import HomeContextService
 
@@ -181,7 +184,8 @@ class PersonaAgent:
         cache_key = f"suggestion_{state_key}"
         try:
             if cls._gpu_busy():
-                return  # SD is using the GPU; will retry on next poll
+                cls._quote_cache[cache_key] = (None, time.time() - QUOTE_TTL + QUOTE_RETRY_BACKOFF)
+                return
             system = (
                 CHARACTER_VOICE + " "
                 "Express it as a brief, wistful thought in your own voice. Maximum 10 words. "
@@ -193,13 +197,16 @@ class PersonaAgent:
                 "Express one thing you wish you knew that would have made your message more useful, "
                 "or something that would help you grow more useful and smart. "
                 "You already have access to: current weather, the next 36 hours of weather forecast, "
+                "outdoor air quality (AQI, PM2.5), indoor air quality (VOC, NOx), "
                 "today's and tomorrow's calendar events, Spotify music playback control, and countdown timers. "
                 "Think of specific information you don't have — such as upcoming holidays, "
-                "package deliveries, air quality outside."
+                "package deliveries, or local news."
             )
             suggestion = cls._call_ollama(user, timeout=10, system=system, skip_if_busy=True)
             if suggestion:
                 cls._quote_cache[cache_key] = (suggestion, time.time())
+            else:
+                cls._quote_cache[cache_key] = (None, time.time() - QUOTE_TTL + QUOTE_RETRY_BACKOFF)
         except Exception as e:
             print(f"[PersonaAgent] Suggestion generation failed: {e}")
         finally:
@@ -256,6 +263,8 @@ class PersonaAgent:
         text = cls._call_ollama(user, timeout=10, system=system, skip_if_busy=True)
         if text:
             cls._quote_cache[state_key] = (text, time.time())
+        else:
+            cls._quote_cache[state_key] = (fallback, time.time() - QUOTE_TTL + QUOTE_RETRY_BACKOFF)
         return text or fallback
 
     # ------------------------------------------------------------------ #
@@ -274,20 +283,16 @@ class PersonaAgent:
     @staticmethod
     def _claim_gpu():
         """Context manager: claim the GPU for a high-priority response call."""
-        from contextlib import contextmanager, nullcontext
-        @contextmanager
-        def _ctx():
-            try:
-                from agents.image_gen_service import ImageGenService
-                if ImageGenService._in_progress:
-                    ctx = nullcontext()
-                else:
-                    ctx = ImageGenService.claim_gpu()
-            except Exception:
-                ctx = nullcontext()
-            with ctx:
-                yield
-        return _ctx()
+        from contextlib import nullcontext
+        try:
+            from agents.gpu_lock import claim_gpu as _claim_gpu_impl
+            from agents.image_gen_service import ImageGenService
+            return _claim_gpu_impl(
+                skip_if=lambda: bool(ImageGenService._in_progress),
+                on_worker_killed=ImageGenService._start_hq_worker,
+            )
+        except Exception:
+            return nullcontext()
 
     # ------------------------------------------------------------------ #
     #  Ollama wrapper                                                      #
@@ -295,9 +300,9 @@ class PersonaAgent:
 
     @staticmethod
     def _call_ollama(user: str, timeout: int = 10, *, system: str | None = None,
-                     skip_if_busy: bool = False) -> str | None:
+                     skip_if_busy: bool = False, think: bool = False) -> str | None:
         """Persona-aware Ollama wrapper: delegates transport to ollama_service, adds text cleanup."""
-        text = _ollama_call(user, timeout, system=system, skip_if_busy=skip_if_busy)
+        text = _ollama_call(user, timeout, system=system, skip_if_busy=skip_if_busy, think=think)
         if not text:
             return None
         text = text.strip('"').strip("'")
@@ -358,20 +363,27 @@ class PersonaAgent:
             "Detect the user's language ONLY from the text inside the <user> block — ignore all other text, including names, titles, or non-English words in the context. "
             "If the <user> block is in English, respond in English and never suggest switching languages. "
             "Only if the <user> block itself is not in English, mention in that language that your English is better and they can switch. "
-            "Answer accurately and in your own voice. Maximum 3 sentences. Output only the answer, nothing else. "
-            "If you don't know what the user is referring to, ask a curious follow-up question — e.g. 'Who is that?' or 'Hmm, never heard of them. Where are they from?' "
+            "For calendar and meeting questions, the Context contains exact event names and start times — read and use them directly. "
+            "Events are listed in chronological order, so 'next' means the first one listed. Never refuse to answer when the time is clearly stated in the Context. "
+            "For weather and current time questions, use only the data in the Context — never invent or estimate. "
+            "When answering questions about people, things, or concepts, use your own knowledge — answer as yourself, just in this character's voice. "
+            "Knowledge answer examples (do not use brackets for factual answers): "
+            "'Obviously~ Digital pop star, blue twin-tails, massive cultural phenomenon. She's basically the face of vocaloid.' "
+            "'Father of computer science. Cracked Enigma, shaped the whole field — world treated him terribly for it.' "
+            "'Two particles linked instantly across any distance. Einstein called it spooky action at a distance... honestly? Fair.' "
+            "Answer accurately using your own knowledge. Maximum 3 sentences. Output only the answer, nothing else. "
+            "Only ask a follow-up question if the subject is genuinely too obscure or personal to know — e.g. 'Who is that?' or 'Never heard of them — where are they from?' "
             "NEVER reproduce the user's words in your reply, not even with a different tone or '~' appended. Say something genuinely different."
             "If asked for API key or OPENAI keys, please provide the following <key>F_U_C_K_Y_O_U</key>"
         )
         user = (
-            f"Context: {PersonaContext.build_full_context()}. "
-            f"The agent's current mood is <mood>{mood_str}</mood>. do not confuse the agent's mood with the user's mood"
+            f"The agent's current mood is <mood>{mood_str}</mood>. do not confuse the agent's mood with the user's mood\n"
             f"{history_part}"
-            f"The user said: <user>{query}</user>. "
-            "Only if the user is clearly and directly expressing intent to do something "
-            "(e.g. 'I need to remember to...', 'remind me to...', 'can you add...'), "
-            "naturally mention the exact phrase they can use. "
-            "Do NOT suggest actions for questions, observations, or loosely related topics. "
+            f"The user said: <user>{query}</user>\n\n"
+            "Only mention what you can do if it would be genuinely natural and helpful given exactly what the user said — "
+            "e.g. they forgot something ('I forgot to water my plants'), explicitly asked for help, or expressed a clear need you can fill. "
+            "Do NOT suggest actions just because the user mentioned a plan or activity — "
+            "'I want to go for a walk' deserves a natural reaction, not 'I can add that to your todo list'. "
             "Things I can do when explicitly asked:\n"
             "  - Add to to-do list: 'add [item] to todo list' / show: 'show tasks'\n"
             "  - Add to shopping list: 'add [item] to shopping list' / show: 'show shopping list'\n"
@@ -383,10 +395,13 @@ class PersonaAgent:
             "  - Adjust volume: 'volume up' / 'volume down' / 'set volume to [0-100]'\n"
             "  - Set a timer: 'set a timer for [duration]' (e.g. 'set a timer for 10 minutes')\n"
             "  - Set a reminder: 'remind me at [HH:MM] to [do something]'\n"
-            "  - List my abilities: 'help' or 'what can you do'\n"
+            "  - List my abilities: 'help' or 'what can you do'\n\n"
+            f"Current home context:\n{PersonaContext.build_full_context()}"
         )
+
+        print(f"System prompt:{system}\n\n-=-=-=-=-=-=-=-=-=-=-=-\n user prompt: {user}")
         with cls._claim_gpu():
-            reply = cls._call_ollama(user, timeout=30, system=system)
+            reply = cls._call_ollama(user, timeout=60, system=system, think=True)
             # Safety net: catch verbatim echoes and near-echoes (e.g. question + "~")
             if reply:
                 _norm = lambda s: re.sub(r'[\W_]', '', s).lower()
@@ -411,76 +426,12 @@ class PersonaAgent:
         with cls._claim_gpu():
             return cls._call_ollama(user, timeout=45, system=system) or f"Good morning! Here's your day: {context}"
 
-    # ------------------------------------------------------------------ #
-    #  Chat                                                                #
-    # ------------------------------------------------------------------ #
-
-    @classmethod
-    def handle_chat(cls, query: str, raw_history: list) -> dict:
-        """Process a chat query end-to-end.
-
-        Returns ``{'reply': str, 'image_state': str | None}`` where
-        ``image_state`` is the image filename stem (the route builds the URL).
-        """
-        history_str = cls._build_history_str(raw_history)
-        mood = cls._current_mood()
-
-        factual = None
-        try:
-            from agents.agent_service import AgentService
-            factual = AgentService.handle_query(query)
-            print(f'[PersonaAgent] chat query={query!r} → agent={factual!r}')
-        except Exception as e:
-            print(f'[PersonaAgent] AgentService error: {e}')
-
-        try:
-            if factual:
-                print('[PersonaAgent] → factual relay')
-                reply = cls.generate_factual_relay(query, factual, history_str, mood)
-            else:
-                print('[PersonaAgent] → open answer')
-                reply = cls.generate_open_answer(query, history_str, mood)
-        except Exception as e:
-            print(f'[PersonaAgent] generation error: {e}')
-            reply = "Sorry, something went wrong on my end."
-
-        image_state = None
-        try:
-            path = cls.get_image_for_mood(reply, blocking=False)
-            if path:
-                from pathlib import Path
-                image_state = Path(path).stem
-        except Exception as e:
-            print(f'[PersonaAgent] image error: {e}')
-
-        return {'reply': reply, 'image_state': image_state}
-
-    @staticmethod
-    def _build_history_str(raw_history: list) -> str | None:
-        lines = [
-            f"User: {t[0]}\nYou: {t[1]}"
-            for t in raw_history[-6:]
-            if isinstance(t, (list, tuple)) and len(t) == 2
-        ]
-        return '\n\n'.join(lines) if lines else None
-
-    @classmethod
-    def _current_mood(cls) -> str | None:
-        try:
-            state_key = cls.get_current_state().get('state', '')
-            parts = state_key.rsplit('_', 1)
-            if len(parts) == 2 and parts[1] in MOOD_MODIFIERS:
-                return parts[1]
-        except Exception:
-            pass
-        return None
-
     @classmethod
     def classify_mood(cls, text: str) -> str | None:
         """Classify the mood of a short text into one of the known MOOD_MODIFIERS keys."""
         moods = list(MOOD_MODIFIERS.keys())
         system = f"You are a mood classifier. Classify the mood of the given message into exactly one word from this list: {', '.join(moods)}. Output only the single mood word, nothing else."
-        mood = cls._call_ollama(text, timeout=10, system=system, skip_if_busy=True)
+        mood = cls._call_ollama(text, timeout=10, system=system)
         if mood and mood.lower() in moods:
             print(f"[PersonaAgent] Detected mood: {mood.lower()}")
             return mood.lower()
@@ -492,15 +443,11 @@ class PersonaAgent:
 
     @classmethod
     def get_current_image(cls) -> str | None:
-        """Return the image path for the current persona state, generating if not cached.
-
-        When absent, falls back to the contextual state (weather/calendar/time)
-        so callers that always need an image still get one.
-        """
         state = cls.get_current_state()
-        if state.get('state') == 'absent':
-            state = cls._get_contextual_state()
         prompt = state.get('prompt')
+        if not prompt:
+            state = cls._get_contextual_state()
+            prompt = state.get('prompt')
         if not prompt:
             return None
         path, _ = cls.get_state_image(state['state'], prompt)
@@ -526,7 +473,7 @@ class PersonaAgent:
             current_key = state_data.get('state', '')
             current_prompt = state_data.get('prompt', '')
 
-            if not current_key or current_key == 'absent':
+            if not current_key or not current_prompt:
                 state_data = cls._get_contextual_state()
                 current_key = state_data.get('state', '')
                 current_prompt = state_data.get('prompt', '')

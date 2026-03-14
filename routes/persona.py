@@ -8,14 +8,24 @@ persona_bp = Blueprint('persona', __name__)
 
 @persona_bp.route('/persona', methods=['GET'])
 def get_persona():
+    if PersonaAgent.is_absent():
+        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None, 'generating': False})
     state_data = PersonaAgent.get_current_state()
     state = state_data['state']
-    if state == 'absent':
-        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None, 'generating': False})
     quote = state_data.get('quote', '')
     suggestion = state_data.get('suggestion')
-    image_path, generating = PersonaAgent.get_state_image(state, state_data['prompt'])
-    image_url = f'/persona/image/{state}' if image_path else None
+    prompt = state_data.get('prompt')
+    if prompt:
+        image_path, generating = PersonaAgent.get_state_image(state, prompt)
+        image_url = f'/persona/image/{state}' if image_path else None
+    else:
+        image_path = PersonaAgent.get_current_image()
+        generating = False
+        if image_path:
+            from pathlib import Path
+            image_url = f'/persona/image/{Path(image_path).stem}'
+        else:
+            image_url = None
     return jsonify({'state': state, 'image_url': image_url, 'quote': quote, 'suggestion': suggestion, 'generating': generating})
 
 
@@ -61,6 +71,16 @@ def persona_chat():
     if not query:
         return jsonify({'error': 'query is required'}), 400
 
-    result    = PersonaAgent.handle_chat(query, data.get('history') or [])
-    image_url = f'/persona/image/{result["image_state"]}' if result.get('image_state') else None
+    from agents.chat_service import ChatService
+    result = ChatService.handle(query, data.get('history') or [])
+
+    image_url = None
+    try:
+        from pathlib import Path
+        path = PersonaAgent.get_image_for_mood(result['reply'], blocking=False)
+        if path:
+            image_url = f'/persona/image/{Path(path).stem}'
+    except Exception as e:
+        print(f'[persona_chat] image error: {e}')
+
     return jsonify({'reply': result['reply'], 'image_url': image_url})

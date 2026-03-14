@@ -106,8 +106,8 @@ void sendZigbeeReport() {
     }
   } else {
     Serial.println(F("\n[TIMEOUT] Could not find Zigbee network."));
+    return;
   }
-
 
   Serial.println(F("Zigbee Dispatch in progress."));
   delay(15000);

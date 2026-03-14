@@ -268,7 +268,7 @@
       {% for state in states %}
       <div class="card" id="card-{{ state.key }}" data-prompt="{{ state.prompt | e }}">
         <div class="card-img">
-          {% if state.has_meta %}
+          {% if state.has_any %}
             <img id="img-{{ state.key }}"
                  src="/persona/image/{{ state.key }}?tier={{ 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') }}&t=0"
                  alt="{{ state.key }}" />
@@ -280,10 +280,10 @@
           <div class="state-key">{{ state.key }}</div>
 
           <div class="tiers">
-            {% set default_tier = 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') %}
+            {% set default_tier = 'uhq' if state.has_uhq else ('mq' if state.has_hq else ('fast' if state.has_fast else '')) %}
             <span id="tier-fast-{{ state.key }}"
-                  class="tier available {{ 'active' if default_tier == 'fast' }}"
-                  onclick="viewTier('{{ state.key }}', 'fast')">FAST</span>
+                  class="tier {{ 'available' if state.has_fast else 'missing' }} {{ 'active' if default_tier == 'fast' }}"
+                  {% if state.has_fast %}onclick="viewTier('{{ state.key }}', 'fast')"{% endif %}>FAST</span>
             <span id="tier-mq-{{ state.key }}"
                   class="tier {{ 'available' if state.has_hq else 'missing' }} {{ 'active' if default_tier == 'mq' }}"
                   {% if state.has_hq %}onclick="viewTier('{{ state.key }}', 'mq')"{% endif %}>MQ</span>
@@ -393,8 +393,13 @@
       });
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
+      location.hash = name;
       if (name === 'memories') loadMemories();
     }
+
+    // Restore tab from hash on load
+    const _hash = location.hash.slice(1);
+    if (_hash === 'memories' || _hash === 'images') switchTab(_hash);
 
     // ── Images tab ────────────────────────────────────────────────────
     function viewTier(state, tier) {

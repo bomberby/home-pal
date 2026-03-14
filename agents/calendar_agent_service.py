@@ -110,7 +110,7 @@ class CalendarAgentService:
     try:
       # Convert the date string to a datetime object
       event_time = parse_dt(date_str)
-      return event_time.strftime('%I:%M %p')  # Format as 10:00 AM, etc.
+      return event_time.strftime('%H:%M')
     except ValueError:
       return date_str  # If it's just a date (no time), return as-is
     

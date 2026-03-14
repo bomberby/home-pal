@@ -38,6 +38,16 @@ class WeatherLocation(BaseModel):
     location_name = CharField(unique=True)
     is_default = BooleanField(default=False)
 
+class AirQualityData(BaseModel):
+    city = CharField(unique=True)
+    latitude = FloatField()
+    longitude = FloatField()
+    hourly_aqi = TextField()   # JSON list of European AQI values
+    hourly_pm25 = TextField()  # JSON list of PM2.5 µg/m³ values
+    hourly_pm10 = TextField()  # JSON list of PM10 µg/m³ values
+    first_time = DateTimeField()
+    last_updated = DateTimeField(default=datetime.datetime.now)
+
 # Create tables if they don't exist
 database.connect()
-database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice, WeatherLocation])
+database.create_tables([Task, WeatherData, ShoppingListItem, SmartHomeDevice, WeatherLocation, AirQualityData])

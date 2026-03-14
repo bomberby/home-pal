@@ -41,7 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (event.start.dateTime) {
                 const startDate = new Date(event.start.dateTime);
                 const endDate = new Date(event.end.dateTime);
-                li.textContent = `${event.summary} - ${startDate.toLocaleDateString()} ${startDate.toLocaleTimeString()} - ${endDate.toLocaleDateString()} ${endDate.toLocaleTimeString()}`;
+                const timeOpts = { hour: '2-digit', minute: '2-digit', hour12: false };
+                li.textContent = `${event.summary} - ${startDate.toLocaleDateString()} ${startDate.toLocaleTimeString([], timeOpts)} - ${endDate.toLocaleDateString()} ${endDate.toLocaleTimeString([], timeOpts)}`;
             } else {
                 const startDate = new Date(event.start.date);
                 endDate = new Date(event.end.date);

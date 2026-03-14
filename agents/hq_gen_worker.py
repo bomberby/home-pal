@@ -28,14 +28,14 @@ import torch
 from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoencoderKL
 
-from agents.gpu_lock import WORKER_PID_PATH, gpu_lock
+from agents.gpu_lock import WORKER_PID_PATH, WORKER_HEARTBEAT_PATH, gpu_lock, PRIORITY_QUEUE_DIR, cleanup_stale_priority
 from agents.image_gen_service import (
-    MODEL_ID, VAE_ID, FIXED_SEED, OUTPUT_DIR, HQ_QUEUE_DIR, UHQ_QUEUE_DIR, PRIORITY_QUEUE_DIR,
+    MODEL_ID, VAE_ID, FIXED_SEED, OUTPUT_DIR, HQ_QUEUE_DIR, UHQ_QUEUE_DIR,
     DEVICE, TORCH_DTYPE,
     ImageGenService,
     _load_textual_inversions,
     build_full_prompt, build_negative_prompt,
-    WORKER_BOOT_PATH, WORKER_HEARTBEAT_PATH,
+    WORKER_BOOT_PATH,
 )
 
 # ---------------------------------------------------------------------------
@@ -315,12 +315,7 @@ def main():
     UHQ_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Clear stale priority files from a previous Flask crash (Flask does this too, belt-and-suspenders).
-    if PRIORITY_QUEUE_DIR.exists():
-        stale = list(PRIORITY_QUEUE_DIR.glob("*.json"))
-        if stale:
-            for f in stale:
-                f.unlink(missing_ok=True)
-            _wlog(f"[HQWorker] Cleared {len(stale)} stale priority file(s).")
+    cleanup_stale_priority()
 
     _wlog(f"[HQWorker] Started (PID {os.getpid()}). Watching MQ and UHQ queues...")
 

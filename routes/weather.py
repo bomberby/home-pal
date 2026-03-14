@@ -2,7 +2,7 @@ import json
 from flask import Blueprint, jsonify, request
 from models import WeatherData, WeatherLocation
 from config import Config
-from services.weather_service import get_cached_or_fetch, wmo_category
+from services.weather_service import get_cached_or_fetch, wmo_category, get_current_air_quality, get_default_location, aqi_label
 
 weather_bp = Blueprint('weather', __name__)
 
@@ -20,6 +20,21 @@ def get_weather():
         return jsonify(weather_data_list)
     except WeatherData.DoesNotExist:
         return jsonify({'error': 'Weather data not found'}), 404
+
+
+@weather_bp.route('/weather/air-quality', methods=['GET'])
+def get_air_quality():
+    city = get_default_location()
+    result = get_current_air_quality(city)
+    if not result:
+        return jsonify({'error': 'Air quality data unavailable'}), 503
+    aqi, pm25, pm10 = result
+    return jsonify({
+        'aqi':   aqi,
+        'label': aqi_label(aqi) if aqi is not None else None,
+        'pm25':  pm25,
+        'pm10':  pm10,
+    })
 
 
 @weather_bp.route('/weather-locations', methods=['GET'])

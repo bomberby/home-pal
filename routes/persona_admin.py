@@ -15,15 +15,28 @@ persona_admin_bp = Blueprint('persona_admin', __name__)
 def persona_admin():
     states = []
     if OUTPUT_DIR.exists():
-        for p in sorted(OUTPUT_DIR.glob("*.png")):
+        all_keys = set()
+        for p in OUTPUT_DIR.glob("*.png"):
             stem = p.stem
-            if stem.endswith("_hq") or stem.endswith("_uhq") or stem.endswith("_exp"):
+            if stem.endswith("_exp"):
                 continue
+            if stem.endswith("_uhq"):
+                all_keys.add(stem[:-4])
+            elif stem.endswith("_hq"):
+                all_keys.add(stem[:-3])
+            else:
+                all_keys.add(stem)
+        for stem in sorted(all_keys):
             meta = ImageGenService._read_meta(stem)
+            has_fast = (OUTPUT_DIR / f"{stem}.png").exists()
+            has_hq   = ImageGenService._hq_path(stem).exists()
+            has_uhq  = ImageGenService._uhq_path(stem).exists()
             states.append({
                 'key':      stem,
-                'has_hq':   ImageGenService._hq_path(stem).exists(),
-                'has_uhq':  ImageGenService._uhq_path(stem).exists(),
+                'has_fast': has_fast,
+                'has_hq':   has_hq,
+                'has_uhq':  has_uhq,
+                'has_any':  has_fast or has_hq or has_uhq,
                 'has_meta': meta is not None,
                 'prompt':   meta.get('scene_prompt', '') if meta else '',
             })
