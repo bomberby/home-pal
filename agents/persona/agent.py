@@ -2,6 +2,10 @@ import os
 import re
 import threading
 import time
+from contextlib import nullcontext
+
+import config
+from smart_home.home_context_service import HomeContextService
 
 from agents.persona.context import PersonaContext
 from agents.persona.states import (
@@ -38,11 +42,8 @@ class PersonaAgent:
 
     @staticmethod
     def get_current_state() -> dict:
-        from smart_home.home_context_service import HomeContextService
-        import config
-
         # Hub offline: MQTT configured but broker unreachable
-        if config.Config.MQTT_BROKER and not HomeContextService.is_connected():
+        if PersonaAgent._hub_offline():
             state_data = CONTEXT_STATES["hub_offline"]
             return PersonaAgent._make_response("hub_offline", state_data, state_data["situation"])
 
@@ -64,10 +65,12 @@ class PersonaAgent:
         return PersonaAgent._get_contextual_state()
 
     @staticmethod
+    def _hub_offline() -> bool:
+        return bool(config.Config.MQTT_BROKER and not HomeContextService.is_connected())
+
+    @staticmethod
     def is_absent() -> bool:
-        from smart_home.home_context_service import HomeContextService
-        import config
-        if config.Config.MQTT_BROKER and not HomeContextService.is_connected():
+        if PersonaAgent._hub_offline():
             return False
         return not HomeContextService.is_home()
 
@@ -76,8 +79,6 @@ class PersonaAgent:
         """State driven purely by environment — air quality, calendar, weather, time.
         Ignores presence entirely.
         """
-        from smart_home.home_context_service import HomeContextService
-
         # Poor air quality
         if HomeContextService.has_poor_air():
             voc = HomeContextService._voc
@@ -338,7 +339,6 @@ class PersonaAgent:
     @staticmethod
     def _claim_gpu():
         """Context manager: claim the GPU for a high-priority response call."""
-        from contextlib import nullcontext
         try:
             from agents.image.gpu_lock import claim_gpu as _claim_gpu_impl
             from agents.image.image_gen_service import ImageGenService
