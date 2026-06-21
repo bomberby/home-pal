@@ -4,13 +4,14 @@
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-const AMBIENT_REFRESH_MS = 60_000;
-const POLL_GENERATING_MS =  5_000;
-const ABSENT_POLL_MS     = 30_000;
+const AMBIENT_REFRESH_MS  = 60_000;
+const POLL_GENERATING_MS  =  5_000;
+const ABSENT_POLL_MS      = 30_000;
 
-let _lastImageUrl = null;
-let _lastQuote    = null;
-let _ambientTimer = null;
+let _lastImageUrl  = null;
+let _lastQuote     = null;
+let _ambientTimer  = null;
+let _widgetVersion = null;
 
 // ─── Split layout constants ────────────────────────────────────────────────────
 const HEADER_H             = 30;
@@ -225,21 +226,57 @@ async function fetchAmbient() {
     const res  = await fetch('/persona');
     const data = await res.json();
 
+    if (data.widget_version) {
+      if (_widgetVersion && _widgetVersion !== data.widget_version) {
+        location.reload();
+        return;
+      }
+      _widgetVersion = data.widget_version;
+    }
+
     if (data.state === 'absent') {
       _scheduleAmbient(ABSENT_POLL_MS);
       return;
     }
     if (data.generating) {
-      _showSpinner();
+      if (!_lastImageUrl) _showSpinner();   // only spinner if nothing is showing
       _scheduleAmbient(POLL_GENERATING_MS);
       return;
     }
     _updatePersonaDisplay(data.image_url, data.quote);
+    if (data.stats) _renderHud(data.stats);
+    if (data.new_unlock) _showUnlockToast(data.new_unlock);
     _scheduleAmbient(AMBIENT_REFRESH_MS);
   } catch (e) {
     console.error('[persona_desktop] ambient poll error:', e);
     _scheduleAmbient(AMBIENT_REFRESH_MS);
   }
+}
+
+function _renderHud(stats) {
+  if (!stats) return;
+  const hud = document.getElementById('persona-hud');
+  if (!hud) return;
+  if (stats.enabled === false) {
+    hud.classList.remove('visible');
+    return;
+  }
+  if (!stats.level) return;
+  hud.classList.add('visible');
+  document.getElementById('hud-level').textContent = `Lv.${stats.level}`;
+  const xpPct = stats.xp_needed > 0 ? Math.round((stats.xp_progress / stats.xp_needed) * 100) : 100;
+  document.getElementById('hud-xp-bar').style.width = xpPct + '%';
+  document.getElementById('hud-xp-text').textContent = `${stats.xp_progress}/${stats.xp_needed}`;
+  document.getElementById('hud-aff-bar').style.width = stats.affection + '%';
+  document.getElementById('hud-nrg-bar').style.width = stats.energy + '%';
+}
+
+function _showUnlockToast(moodKey) {
+  const toast = document.getElementById('persona-unlock-toast');
+  if (!toast) return;
+  toast.textContent = `✨ new mood unlocked: ${moodKey}`;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3500);
 }
 
 function _scheduleAmbient(ms) {
@@ -316,6 +353,17 @@ async function speakText(text) {
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
+function _clearChat() {
+  _history.length = 0;
+  _chatMsgCount = 0;
+  clearTimeout(_autoCollapseTimer);
+  const histEl = document.getElementById('chat-history');
+  histEl.innerHTML = '<div class="chat-empty-hint">Ask me anything…</div>';
+  document.getElementById('chat-badge')?.style && (document.getElementById('chat-badge').style.display = 'none');
+  const clearBtn = document.getElementById('btn-clear-chat');
+  if (clearBtn) clearBtn.style.display = 'none';
+}
+
 function _appendBubble(text, role, pending = false) {
   const el = document.createElement('div');
   el.className = `chat-bubble ${role}`;
@@ -333,6 +381,9 @@ function _appendBubble(text, role, pending = false) {
   if (role === 'user') {
     _chatMsgCount++;
     _resetAutoCollapse();
+    // Show clear button as soon as there's something to clear
+    const clearBtn = document.getElementById('btn-clear-chat');
+    if (clearBtn) clearBtn.style.display = 'flex';
   }
   return el;
 }
@@ -367,7 +418,7 @@ async function sendMessage() {
     // Record exchange in session history
     _history.push([query, reply]);
 
-    // Update persona image if a mood-matched one came back
+    // Update persona image if a mood-matched one came back.
     // NOTE: we intentionally do NOT update the speech bubble from chat replies —
     // the ambient bubble reflects the persona's state, not the conversation.
     if (data.image_url && data.image_url !== _lastImageUrl) {
@@ -379,6 +430,10 @@ async function sendMessage() {
       document.getElementById('persona-spinner').style.display = 'none';
       img.style.display = '';
     }
+
+    // Resume normal ambient polling — backend lingering mood keeps the chat-triggered
+    // mood alive for LINGERING_MOOD_DURATION, so ambient polls naturally reflect it.
+    _scheduleAmbient(AMBIENT_REFRESH_MS);
 
     // Auto-speak — only when TTS is enabled
     if (_ttsEnabled) speakText(reply);
@@ -406,6 +461,12 @@ document.addEventListener('DOMContentLoaded', () => {
   _applyTtsState();
   document.getElementById('btn-tts-toggle')
     ?.addEventListener('click', _toggleTts);
+
+  // Clear chat — stop mousedown propagation so it never triggers the toggle drag
+  document.getElementById('btn-clear-chat')
+    ?.addEventListener('mousedown', e => e.stopPropagation());
+  document.getElementById('btn-clear-chat')
+    ?.addEventListener('click', _clearChat);
 
   // Chat toggle — mousedown initiates drag or click (no 'click' listener needed)
   document.getElementById('chat-toggle')

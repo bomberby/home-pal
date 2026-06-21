@@ -23,12 +23,29 @@
 #define HREF_GPIO_NUM  47
 #define PCLK_GPIO_NUM  13
 
+
+#define MIN_TO_uS_FACTOR 60000000ULL  // Conversion factor for minutes to microseconds
+
 // ─── Config ───────────────────────────────────────────────────────────────────
-const int CAPTURE_INTERVAL_MS = 30000;  // how often to send a snapshot
+const int CAPTURE_INTERVAL_MIN = 1;  // how often to send a snapshot
+const int BATTERY_LOW_SLEEP_MIN = 10;
+const int WIFI_FAIL_SLEEP_MIN   = 5;
+const int WIFI_MAX_RETRIES      = 20; // 10 seconds total
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 IPAddress serverIP;
+
+void blinkError(int count) {
+  digitalWrite(LED_BUILTIN, HIGH); // ensure starting from off
+  delay(200);
+  for (int i = 0; i < count; i++) {
+    digitalWrite(LED_BUILTIN, LOW);  // on
+    delay(200);
+    digitalWrite(LED_BUILTIN, HIGH); // off
+    delay(200);
+  }
+}
 
 bool resolveServer() {
   serverIP = MDNS.queryHost(SERVER_HOST);
@@ -125,21 +142,43 @@ void sendSnapshot() {
   HTTPClient http;
   http.begin(snapshotUrl());
   http.addHeader("Content-Type", "image/jpeg");
-  int code = http.POST(fb->buf, fb->len);
+  size_t len = fb->len;
+  int code = http.POST(fb->buf, len);
   http.end();
   esp_camera_fb_return(fb);
 
-  Serial.printf("[Cam] Sent %d bytes → HTTP %d\n", fb->len, code);
+  Serial.printf("[Cam] Sent %zu bytes → HTTP %d\n", len, code);
 }
 
 void setup() {
   Serial.begin(115200);
 
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW); // LED ON
+
+  uint32_t Vbatt = 0;
+  for (int i = 0; i < 16; i++) Vbatt += analogReadMilliVolts(A0);
+  float Vbattf = 2 * Vbatt / 16 / 1000.0;
+  if (voltageToPercentage(Vbattf) < 10) {
+    Serial.printf("[Batt] Low (%.1f%%), sleeping %d min\n", voltageToPercentage(Vbattf), BATTERY_LOW_SLEEP_MIN);
+    blinkError(1);
+    esp_sleep_enable_timer_wakeup(BATTERY_LOW_SLEEP_MIN * MIN_TO_uS_FACTOR);
+    esp_deep_sleep_start();
+  }
+
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("[WiFi] Connecting");
-  while (WiFi.status() != WL_CONNECTED) {
+  int wifiRetries = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiRetries < WIFI_MAX_RETRIES) {
     delay(500);
     Serial.print(".");
+    wifiRetries++;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\n[WiFi] Failed — sleeping");
+    blinkError(3);
+    esp_sleep_enable_timer_wakeup(WIFI_FAIL_SLEEP_MIN * MIN_TO_uS_FACTOR);
+    esp_deep_sleep_start();
   }
   Serial.printf("\n[WiFi] Connected: %s\n", WiFi.localIP().toString().c_str());
 
@@ -151,7 +190,27 @@ void setup() {
   resolveServer();
 }
 
+float voltageToPercentage(float voltage) {
+  // Define the minimum and maximum voltages for a single LiPo cell
+  const float MIN_VOLTAGE = 3.0; // Minimum safe discharge voltage
+  const float MAX_VOLTAGE = 4.2; // Fully charged voltage
+
+  // Check if the voltage is within the expected range
+  if (voltage >= MAX_VOLTAGE) {
+    return 100.0;
+  } else if (voltage <= MIN_VOLTAGE) {
+    return 0.0;
+  } else {
+    // Perform a linear interpolation
+    // Formula: ((voltage - min) / (max - min)) * 100
+    float percentage = ((voltage - MIN_VOLTAGE) / (MAX_VOLTAGE - MIN_VOLTAGE)) * 100.0;
+    return percentage;
+  }
+}
+
+
 void loop() {
+  digitalWrite(LED_BUILTIN, LOW); // LED ON
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("[WiFi] Reconnecting...");
     WiFi.reconnect();
@@ -159,6 +218,20 @@ void loop() {
     return;
   }
 
+  uint32_t Vbatt = 0;
+  for(int i = 0; i < 16; i++) {
+    Vbatt += analogReadMilliVolts(A0);
+  }
+  float Vbattf = 2 * Vbatt / 16 / 1000.0;
+  float vBatPercent = voltageToPercentage(Vbattf);
+  Serial.printf("Battery: %.3fV (%.1f%%)\n", Vbattf, vBatPercent);
+  if (vBatPercent < 10) {
+    Serial.printf("Battery low, sleeping");
+    blinkError(1);
+    esp_sleep_enable_timer_wakeup(BATTERY_LOW_SLEEP_MIN * MIN_TO_uS_FACTOR);
+    esp_deep_sleep_start();
+  }
   sendSnapshot();
-  delay(CAPTURE_INTERVAL_MS);
+  esp_sleep_enable_timer_wakeup(CAPTURE_INTERVAL_MIN * MIN_TO_uS_FACTOR);
+  esp_deep_sleep_start();
 }

@@ -90,20 +90,26 @@ class TelegramService:
     def send_message(cls, text: str, reply_markup=None, photo: str | None = None):
         if not cls.is_available():
             return
-        try:
-            if photo and os.path.exists(photo):
-                from PIL import Image
-                from io import BytesIO
-                img = Image.open(photo)
-                img.thumbnail((720, 720), Image.LANCZOS)
-                buf = BytesIO()
-                img.save(buf, format='PNG')
-                buf.seek(0)
-                cls._bot.send_photo(cls._chat_id, buf, caption=text, reply_markup=reply_markup)
-            else:
-                cls._bot.send_message(cls._chat_id, text, reply_markup=reply_markup)
-        except Exception as e:
-            print(f"[Telegram] Failed to send message: {e}")
+        for attempt in range(2):
+            try:
+                if photo and os.path.exists(photo):
+                    from PIL import Image
+                    from io import BytesIO
+                    img = Image.open(photo)
+                    img.thumbnail((720, 720), Image.LANCZOS)
+                    buf = BytesIO()
+                    img.save(buf, format='PNG')
+                    buf.seek(0)
+                    cls._bot.send_photo(cls._chat_id, buf, caption=text, reply_markup=reply_markup)
+                else:
+                    cls._bot.send_message(cls._chat_id, text, reply_markup=reply_markup)
+                return
+            except Exception as e:
+                if attempt == 0:
+                    print(f"[Telegram] Send failed, retrying: {e}")
+                    time.sleep(3)
+                else:
+                    print(f"[Telegram] Failed to send message: {e}")
 
     @classmethod
     def get_image_for_text(cls, text: str) -> str | None:

@@ -1,10 +1,11 @@
+import json
 import time
 
 import requests
 from flask import Blueprint, jsonify, render_template, request
 
-from agents.ollama_service import OLLAMA_BASE_URL
-from agents.lmstudio_service import LM_STUDIO_BASE_URL
+from agents.llm.ollama_service import OLLAMA_BASE_URL, _DUMMY_TOOLS
+from agents.llm.lmstudio_service import LM_STUDIO_BASE_URL
 from agents.persona.agent import PersonaAgent
 from agents.persona.states import CHARACTER_VOICE, MOOD_MODIFIERS
 
@@ -20,10 +21,10 @@ def _ctx():
 
 
 # ── Scenario builders ──────────────────────────────────────────────────────────
-# Each returns (flat_prompt, system, user) — prompts copied verbatim from
+# Each returns (system, user) — prompts copied verbatim from
 # agents/persona_agent.py so the bench tests the exact production prompts.
 
-def _build_quote(situation: str, mood: str) -> tuple[str, str, str]:
+def _build_quote(situation: str, mood: str) -> tuple[str, str]:
     body = (
         f"Current situation: {situation}. Emotional state: {mood}. Context: {_ctx()}. "
         "Be expressive and creative, matching your emotional state — "
@@ -34,11 +35,10 @@ def _build_quote(situation: str, mood: str) -> tuple[str, str, str]:
         "Write one reaction in that same casual style, maximum 10 words. "
         "Output only the line, nothing else."
     )
-    flat = CHARACTER_VOICE + " " + body
-    return flat, CHARACTER_VOICE, body
+    return CHARACTER_VOICE, body
 
 
-def _build_briefing(mood: str) -> tuple[str, str, str]:
+def _build_briefing(mood: str) -> tuple[str, str]:
     body = (
         f"Emotional state: {mood}. "
         "Welcome the user who just arrived home with a short warm briefing. Speak directly to them. "
@@ -51,11 +51,10 @@ def _build_briefing(mood: str) -> tuple[str, str, str]:
         "'Welcome back! Three meetings today — first one at 10am. Cold out there too.' "
         f"Context: {_ctx()}. Write the greeting now. Output only the lines, nothing else."
     )
-    flat = CHARACTER_VOICE + " " + body
-    return flat, CHARACTER_VOICE, body
+    return CHARACTER_VOICE, body
 
 
-def _build_relay(query: str, result: str) -> tuple[str, str, str]:
+def _build_relay(query: str, result: str) -> tuple[str, str]:
     clean_result = result.rstrip('.')
     body = (
         f"The user asked: <user>{query}</user>. The answer is: {clean_result}. "
@@ -68,11 +67,10 @@ def _build_relay(query: str, result: str) -> tuple[str, str, str]:
         "Maximum 2 sentences. Output only the message, nothing else. "
         f"(Background awareness only, do not repeat: {_ctx()})"
     )
-    flat = CHARACTER_VOICE + " " + body
-    return flat, CHARACTER_VOICE, body
+    return CHARACTER_VOICE, body
 
 
-def _build_open(query: str) -> tuple[str, str, str]:
+def _build_open(query: str) -> tuple[str, str]:
     body = (
         f"Context: {_ctx()}. "
         f"The user said: <user>{query}</user>. "
@@ -98,11 +96,10 @@ def _build_open(query: str) -> tuple[str, str, str]:
         "  - List my abilities: 'help' or 'what can you do'\n"
         "Maximum 2 sentences. Output only the answer, nothing else."
     )
-    flat = CHARACTER_VOICE + " " + body
-    return flat, CHARACTER_VOICE, body
+    return CHARACTER_VOICE, body
 
 
-def _build_classify(text: str) -> tuple[str, str, str]:
+def _build_classify(text: str) -> tuple[str, str]:
     moods = list(MOOD_MODIFIERS.keys())
     system = "You are a mood classifier. Output only one word from the list."
     user = (
@@ -110,8 +107,7 @@ def _build_classify(text: str) -> tuple[str, str, str]:
         f"Message: \"{text}\"\n"
         "Output only the single mood word, nothing else."
     )
-    flat = user
-    return flat, system, user
+    return system, user
 
 
 # Fixed existing memories used for all memory-extract scenarios so results are
@@ -122,7 +118,7 @@ _BENCH_EXISTING_MEMORIES = (
 )
 
 
-def _build_memory_extract(exchange: str) -> tuple[str, str, str]:
+def _build_memory_extract(exchange: str) -> tuple[str, str]:
     """Mirrors MemoryService.extract_from_exchange verbatim, with fixed existing memories."""
     system = "You are a memory assistant for a home dashboard persona."
     user = (
@@ -161,8 +157,7 @@ def _build_memory_extract(exchange: str) -> tuple[str, str, str]:
         f"Exchange:\n{exchange}\n\n"
         "Output ONE short sentence starting with 'The user' (with [transient:TIMEFRAME] if applicable), or exactly 'none'. Do not explain."
     )
-    flat = f"{system} {user}"
-    return flat, system, user
+    return system, user
 
 
 SCENARIOS = {
@@ -222,6 +217,10 @@ SCENARIOS = {
     },
     "custom": {
         "label": "Custom Prompt",
+        "builder": None,
+    },
+    "custom_with_context": {
+        "label": "Custom + Full Context",
         "builder": None,
     },
     # ── Open answer sub-cases ─────────────────────────────────────────────────
@@ -369,57 +368,61 @@ SCENARIOS = {
 
 # ── Callers ────────────────────────────────────────────────────────────────────
 
-def _call_flat(backend: str, model: str, prompt: str, timeout: int) -> dict:
-    t0 = time.monotonic()
-    try:
-        if backend == 'lmstudio':
-            r = requests.post(
-                f"{LM_STUDIO_BASE_URL}/chat/completions",
-                json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
-                timeout=timeout,
-            )
-            r.raise_for_status()
-            out = r.json()["choices"][0]["message"]["content"].strip()
-        else:
-            r = requests.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, "think": False},
-                timeout=timeout,
-            )
-            r.raise_for_status()
-            out = r.json().get("response", "").strip()
-        return {"model": model, "backend": backend, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
-    except requests.exceptions.Timeout:
-        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
-    except Exception as e:
-        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
+def _extract_lmstudio_thinking(content: str) -> tuple[str, str | None]:
+    """Split <think>...</think> tags out of LM Studio content. Returns (output, thinking)."""
+    if '<think>' in content and '</think>' in content:
+        t_start = content.index('<think>') + len('<think>')
+        t_end = content.index('</think>')
+        thinking = content[t_start:t_end].strip() or None
+        out = content[t_end + len('</think>'):].strip()
+        return out, thinking
+    return content, None
 
 
-def _call_chat(backend: str, model: str, system: str, user: str, timeout: int) -> dict:
+def _call_chat(backend: str, model: str, system: str, user: str, timeout: int,
+               think: bool = False, use_tools: bool = False) -> dict:
     t0 = time.monotonic()
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
+    tools = _DUMMY_TOOLS if use_tools else None
     try:
         if backend == 'lmstudio':
-            r = requests.post(
-                f"{LM_STUDIO_BASE_URL}/chat/completions",
-                json={"model": model, "messages": messages, "stream": False},
-                timeout=timeout,
-            )
+            body = {"model": model, "messages": messages, "stream": False}
+            if think:
+                body["enable_thinking"] = True
+            if tools:
+                body["tools"] = tools
+            r = requests.post(f"{LM_STUDIO_BASE_URL}/chat/completions", json=body, timeout=timeout)
             r.raise_for_status()
-            out = r.json()["choices"][0]["message"]["content"].strip()
+            msg = r.json()["choices"][0]["message"]
+            raw = msg.get("content") or ""
+            if not raw.strip() and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    args = tc.get("function", {}).get("arguments", {})
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    if text := args.get("text", ""):
+                        raw = text
+                        break
+            out, thinking = _extract_lmstudio_thinking(raw.strip())
         else:
-            r = requests.post(
-                f"{OLLAMA_BASE_URL}/api/chat",
-                json={"model": model, "messages": messages, "stream": False, "think": False},
-                timeout=timeout,
-            )
+            body = {"model": model, "messages": messages, "stream": False, "think": think}
+            if tools:
+                body["tools"] = tools
+            r = requests.post(f"{OLLAMA_BASE_URL}/api/chat", json=body, timeout=timeout)
             r.raise_for_status()
-            out = r.json().get("message", {}).get("content", "").strip()
-        return {"model": model, "backend": backend, "output": out, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
+            msg = r.json().get("message", {})
+            out = msg.get("content", "").strip()
+            thinking = msg.get("thinking", "").strip() or None
+            if not out and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    if text := tc.get("function", {}).get("arguments", {}).get("text", ""):
+                        out = text
+                        break
+        return {"model": model, "backend": backend, "output": out, "thinking": thinking, "latency_ms": int((time.monotonic() - t0) * 1000), "error": None}
     except requests.exceptions.Timeout:
-        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
+        return {"model": model, "backend": backend, "output": "", "thinking": None, "latency_ms": int((time.monotonic() - t0) * 1000), "error": f"Timeout after {timeout}s"}
     except Exception as e:
-        return {"model": model, "backend": backend, "output": "", "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
+        return {"model": model, "backend": backend, "output": "", "thinking": None, "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)}
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -463,16 +466,15 @@ def llm_bench_run():
 
     models = data.get("models", [])  # list of {name, backend}
     scenario = data.get("scenario", "")
-    prompt_style = data.get("prompt_style", "flat")
     timeout = int(data.get("timeout", _DEFAULT_TIMEOUT))
     custom_prompt = data.get("custom_prompt", "").strip()
+    reasoning = bool(data.get("reasoning", False))
+    use_tools = bool(data.get("use_tools", False))
 
     if not models:
         return jsonify({"error": "No models selected"}), 400
     if scenario not in SCENARIOS:
         return jsonify({"error": f"Unknown scenario: {scenario}"}), 400
-    if prompt_style not in ("flat", "chat"):
-        return jsonify({"error": "prompt_style must be flat or chat"}), 400
 
     scenario_data = SCENARIOS[scenario]
 
@@ -482,19 +484,13 @@ def llm_bench_run():
         prompt_parts = []
         for case_key in scenario_data["cases"]:
             case = SCENARIOS[case_key]
-            flat_prompt, system, user = case["builder"]()
-            if prompt_style == "flat":
-                prompt_display = flat_prompt
-            else:
-                prompt_display = f"[SYSTEM]\n{system}\n\n[USER]\n{user}" if system else f"[USER]\n{user}"
+            system, user = case["builder"]()
+            prompt_display = f"[SYSTEM]\n{system}\n\n[USER]\n{user}" if system else f"[USER]\n{user}"
             prompt_parts.append(f"── {case['row_label']} ──\n{prompt_display}")
 
             case_results = []
             for m in models:
-                if prompt_style == "flat":
-                    case_results.append(_call_flat(m["backend"], m["name"], flat_prompt, timeout))
-                else:
-                    case_results.append(_call_chat(m["backend"], m["name"], system, user, timeout))
+                case_results.append(_call_chat(m["backend"], m["name"], system, user, timeout, think=reasoning, use_tools=use_tools))
 
             rows.append({
                 "row_label": case["row_label"],
@@ -515,23 +511,28 @@ def llm_bench_run():
     if scenario == "custom":
         if not custom_prompt:
             return jsonify({"error": "Custom prompt is empty"}), 400
-        flat_prompt = custom_prompt
         system = ""
         user = custom_prompt
+    elif scenario == "custom_with_context":
+        if not custom_prompt:
+            return jsonify({"error": "Custom prompt is empty"}), 400
+        ctx = _ctx()
+        system = (
+            CHARACTER_VOICE + " "
+            "Answer accurately in your own voice. "
+            "Use the context provided to inform your response — never invent data that contradicts it. "
+            "Never invent or assume a time of day — use only the current time from the context. "
+            "Output only your answer, nothing else."
+        )
+        user = f"Current home context:\n{ctx}\n\n{custom_prompt}"
     else:
-        flat_prompt, system, user = scenario_data["builder"]()
+        system, user = scenario_data["builder"]()
 
-    if prompt_style == "flat":
-        prompt_display = flat_prompt
-    else:
-        prompt_display = f"[SYSTEM]\n{system}\n\n[USER]\n{user}" if system else f"[USER]\n{user}"
+    prompt_display = f"[SYSTEM]\n{system}\n\n[USER]\n{user}" if system else f"[USER]\n{user}"
 
     results = []
     for m in models:
-        if prompt_style == "flat":
-            results.append(_call_flat(m["backend"], m["name"], flat_prompt, timeout))
-        else:
-            results.append(_call_chat(m["backend"], m["name"], system, user, timeout))
+        results.append(_call_chat(m["backend"], m["name"], system, user, timeout, think=reasoning, use_tools=use_tools))
 
     return jsonify({
         "is_group": False,

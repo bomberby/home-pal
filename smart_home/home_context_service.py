@@ -10,7 +10,7 @@ AIC_PERSIST_PATH = os.path.join('env', 'last_known_aic.json')
 PRESENCE_TIMEOUT = 120      # seconds without update → consider away
 PRESENCE_ABSENT_RSSI = -95  # RSSI below this = not in range
 PRESENCE_HOME_CONFIRM = 60  # seconds RSSI must stay present before marking as arrived
-PRESENCE_AWAY_CONFIRM = 60  # seconds RSSI must stay absent before marking as away
+PRESENCE_AWAY_CONFIRM = 600  # seconds RSSI must stay absent before marking as away
 
 
 def _load_mqtt_credentials() -> tuple[str, str]:

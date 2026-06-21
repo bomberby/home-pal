@@ -128,13 +128,106 @@
       0%, 100% { transform: translateY(0); }
       50%       { transform: translateY(-10px); }
     }
+
+    /* ── Stats HUD ───────────────────────────────── */
+    .persona-hud {
+      width: 88%;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 6px 10px;
+      margin-bottom: 6px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+    }
+    .hud-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .hud-level {
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(99, 102, 241, 0.9);
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      min-width: 28px;
+    }
+    .hud-bar-wrap {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .hud-bar {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+    .hud-xp-bar  { background: linear-gradient(90deg, rgba(99,102,241,0.8), rgba(139,92,246,0.8)); }
+    .hud-aff-bar { background: linear-gradient(90deg, rgba(244,63,94,0.8), rgba(251,113,133,0.7)); }
+    .hud-nrg-bar { background: linear-gradient(90deg, rgba(234,179,8,0.8), rgba(250,204,21,0.7)); }
+    .hud-icon {
+      font-size: 9px;
+      opacity: 0.7;
+      white-space: nowrap;
+    }
+    .hud-xp-text {
+      font-size: 9px;
+      color: rgba(255,255,255,0.35);
+      white-space: nowrap;
+      min-width: 38px;
+      text-align: right;
+    }
+
+    /* ── Unlock toast ────────────────────────────── */
+    #persona-unlock-toast {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-40px);
+      background: rgba(99, 102, 241, 0.92);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 20px;
+      filter: drop-shadow(0 4px 12px rgba(99,102,241,0.5));
+      pointer-events: none;
+      opacity: 0;
+      transition: transform 0.35s ease, opacity 0.35s ease;
+      z-index: 100;
+      white-space: nowrap;
+    }
+    #persona-unlock-toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
   <div class="persona-widget">
     <div id="persona-spinner">Generating...</div>
+    <div id="persona-unlock-toast"></div>
     <div id="persona-content" style="display:none;">
       <div id="persona-suggestion" class="persona-suggestion" style="display:none;"></div>
+      <div class="persona-hud" id="persona-hud" style="display:none;">
+        <div class="hud-row">
+          <span class="hud-level" id="hud-level">Lv.1</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-xp-bar" id="hud-xp-bar" style="width:0%"></div></div>
+          <span class="hud-xp-text" id="hud-xp-text">0 XP</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-icon">♡</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-aff-bar" id="hud-aff-bar" style="width:0%"></div></div>
+          <span class="hud-icon">⚡</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-nrg-bar" id="hud-nrg-bar" style="width:0%"></div></div>
+        </div>
+      </div>
       <div class="persona-bubble-row">
         <div class="persona-bubble" id="persona-bubble"></div>
         <button id="persona-speak-btn" class="persona-speak-btn" title="Speak" style="display:none;">🔊</button>

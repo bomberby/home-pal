@@ -66,3 +66,8 @@ def _check_due():
             print(f"[Reminder] Notification failed: {e}")
         task.completed = True
         task.save()
+        try:
+            from agents.stats_service import on_reminder_fired
+            on_reminder_fired()
+        except Exception as e:
+            print(f'[Reminder] stats error: {e}')

@@ -3,7 +3,7 @@ import config
 from models import database
 from routes import init_routes
 from cache import cache
-import agents.ollama_service as ollama_service
+import agents.llm.ollama_service as ollama_service
 from smart_home.home_context_service import HomeContextService
 
 def create_app():
@@ -39,7 +39,7 @@ if __name__ == '__main__':
     HomeContextService.start()
     import os
     from services.telegram_service import TelegramService
-    from agents.image_gen_service import ImageGenService
+    from agents.image.image_gen_service import ImageGenService
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not config.Config.DEBUG:
         TelegramService.start()
         ImageGenService.start_upgrade_scheduler()

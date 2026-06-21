@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from models import WeatherData, WeatherLocation, AirQualityData
 from playhouse.shortcuts import model_to_dict
 from config import Config
@@ -6,6 +6,7 @@ import requests
 import json
 
 CACHE_DURATION = 3600
+FETCH_ERROR_BACKOFF = 300  # retry failed fetches after 5 min, not every 5 seconds
 
 # WMO Weather interpretation codes — https://open-meteo.com/en/docs
 _WMO_DESCRIPTIONS = {
@@ -113,18 +114,30 @@ def get_cached_or_fetch(cities):
         try:
             weather_data = WeatherData.get(WeatherData.city == city)
             if (datetime.now() - weather_data.last_updated).total_seconds() > CACHE_DURATION:
-                weather_data_dict[city] = model_to_dict(fetch_weather_data(city))
+                fresh = fetch_weather_data(city)
+                if fresh is not None:
+                    weather_data_dict[city] = model_to_dict(fresh)
+                else:
+                    weather_data.last_updated = datetime.now() - timedelta(seconds=CACHE_DURATION - FETCH_ERROR_BACKOFF)
+                    weather_data.save()
+                    weather_data_dict[city] = model_to_dict(weather_data)
             else:
                 weather_data_dict[city] = model_to_dict(weather_data)
         except WeatherData.DoesNotExist:
-            weather_data_dict[city] = model_to_dict(fetch_weather_data(city))
+            fresh = fetch_weather_data(city)
+            if fresh is not None:
+                weather_data_dict[city] = model_to_dict(fresh)
     return weather_data_dict
 
 def fetch_weather_data(city):
     geo = geo_from_city_name(city)
     url = f"https://api.open-meteo.com/v1/forecast?latitude={geo['latitude']}&longitude={geo['longitude']}&hourly=temperature_2m,precipitation,weathercode&timezone=auto"
 
-    response = requests.get(url)
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.exceptions.RequestException as e:
+        print(f"[Weather] Failed to fetch weather data for {city}: {e}")
+        return None
     if response.status_code == 200:
         data = response.json()
         latitude = data['latitude']
@@ -267,7 +280,12 @@ def get_current_air_quality(city: str) -> tuple[float, float, float] | None:
     try:
         record = AirQualityData.get(AirQualityData.city == city)
         if (datetime.now() - record.last_updated).total_seconds() > CACHE_DURATION:
-            record = fetch_air_quality(city)
+            fresh = fetch_air_quality(city)
+            if fresh is not None:
+                record = fresh
+            else:
+                record.last_updated = datetime.now() - timedelta(seconds=CACHE_DURATION - FETCH_ERROR_BACKOFF)
+                record.save()
     except AirQualityData.DoesNotExist:
         record = fetch_air_quality(city)
 

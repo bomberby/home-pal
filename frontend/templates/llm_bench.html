@@ -426,10 +426,18 @@
     </div>
 
     <div class="sidebar-section">
-      <h2>Style</h2>
+      <h2>Reasoning</h2>
       <div class="style-toggle">
-        <button class="style-btn active" id="btn-flat" onclick="setStyle('flat')">flat</button>
-        <button class="style-btn" id="btn-chat" onclick="setStyle('chat')">chat</button>
+        <button class="style-btn active" id="btn-think-off" onclick="setReasoning(false)">off</button>
+        <button class="style-btn" id="btn-think-on" onclick="setReasoning(true)">on</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Tools</h2>
+      <div class="style-toggle">
+        <button class="style-btn active" id="btn-tools-off" onclick="setTools(false)">off</button>
+        <button class="style-btn" id="btn-tools-on" onclick="setTools(true)">on</button>
       </div>
     </div>
 
@@ -464,7 +472,8 @@
 <script>
   'use strict';
 
-  let _promptStyle = 'flat';
+  let _reasoning = false;
+  let _useTools = false;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function escHtml(s) {
@@ -525,14 +534,28 @@
   // ── Scenario change ───────────────────────────────────────────────────────
   function onScenarioChange(val) {
     document.getElementById('custom-input').style.display =
-      val === 'custom' ? 'block' : 'none';
+      (val === 'custom' || val === 'custom_with_context') ? 'block' : 'none';
   }
 
-  // ── Style toggle ──────────────────────────────────────────────────────────
-  function setStyle(style) {
-    _promptStyle = style;
-    document.getElementById('btn-flat').classList.toggle('active', style === 'flat');
-    document.getElementById('btn-chat').classList.toggle('active', style === 'chat');
+  // ── Reasoning toggle ──────────────────────────────────────────────────────
+  function setReasoning(val) {
+    _reasoning = val;
+    document.getElementById('btn-think-off').classList.toggle('active', !val);
+    document.getElementById('btn-think-on').classList.toggle('active', val);
+  }
+
+  // ── Tools toggle ──────────────────────────────────────────────────────────
+  function setTools(val) {
+    _useTools = val;
+    document.getElementById('btn-tools-off').classList.toggle('active', !val);
+    document.getElementById('btn-tools-on').classList.toggle('active', val);
+  }
+
+  // ── Thinking collapsible (per-card) ───────────────────────────────────────
+  function toggleThinking(btn) {
+    const pre = btn.nextElementSibling;
+    const open = pre.classList.toggle('open');
+    btn.textContent = (open ? '\u25b2 Hide' : '\u25bc Show') + ' reasoning';
   }
 
   // ── Collapsible ───────────────────────────────────────────────────────────
@@ -615,9 +638,16 @@
       verdictHtml = `<span class="gt-verdict ${pass ? 'pass' : 'fail'}">${pass ? '&#10003;' : '&#10007;'}</span>`;
     }
 
+    const thinkingHtml = r.thinking ? `
+      <div class="card-thinking">
+        <button class="collapse-btn" onclick="toggleThinking(this)">\u25bc Show reasoning</button>
+        <pre class="collapsible-body">${escHtml(r.thinking)}</pre>
+      </div>` : '';
+
     return `
       <div class="gt-cell">
         <div class="gt-output ${outputCls}">${escHtml(outputText)}</div>
+        ${thinkingHtml}
         <div class="gt-meta">
           ${verdictHtml}
           <span class="card-latency ${latCls}">${latSec}s</span>
@@ -655,6 +685,12 @@
       expectedHtml = `<div class="card-expected ${cls}"><span class="label">expected:</span>${icon} ${escHtml(expected)}</div>`;
     }
 
+    const thinkingHtml = r.thinking ? `
+      <div class="card-thinking">
+        <button class="collapse-btn" onclick="toggleThinking(this)">\u25bc Show reasoning</button>
+        <pre class="collapsible-body">${escHtml(r.thinking)}</pre>
+      </div>` : '';
+
     return `
       <div class="result-card">
         <div class="card-header">
@@ -662,6 +698,7 @@
           <span class="card-latency ${latCls}">${latSec}s</span>
         </div>
         <div class="card-output ${outputCls}">${escHtml(outputText)}</div>
+        ${thinkingHtml}
         ${expectedHtml}
         <div class="card-footer">
           <span></span>
@@ -687,7 +724,7 @@
       setStatus('Select a model', 'err');
       return;
     }
-    if (scenario === 'custom' && !customPrompt) {
+    if ((scenario === 'custom' || scenario === 'custom_with_context') && !customPrompt) {
       setStatus('Enter a prompt', 'err');
       return;
     }
@@ -712,9 +749,10 @@
         body: JSON.stringify({
           models,
           scenario,
-          prompt_style: _promptStyle,
           timeout,
           custom_prompt: customPrompt,
+          reasoning: _reasoning,
+          use_tools: _useTools,
         }),
       });
 

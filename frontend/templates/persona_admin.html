@@ -105,6 +105,75 @@
     .status.ok  { color: #6c6; }
     .status.err { color: #f66; }
 
+    /* ── Wishes panel ────────────────────────────────────────────────── */
+    .wish-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .wish-toolbar .wish-count { font-size: 11px; color: #555; }
+
+    .wish-list { display: flex; flex-direction: column; gap: 8px; }
+    .wish-empty { font-size: 12px; color: #444; padding: 20px 0; }
+
+    .wish-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 6px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .wish-card:hover { border-color: #3a3a5a; }
+    .wish-row { display: flex; align-items: flex-start; gap: 12px; }
+
+    .wish-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .wish-content { font-size: 13px; color: #dde; line-height: 1.4; word-break: break-word; }
+    .wish-meta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .wish-time   { font-size: 10px; color: #556; }
+    .wish-ctx    { font-size: 10px; color: #468; font-style: italic; }
+    .wish-actions { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; align-self: center; }
+    .wish-del { padding: 4px 10px; font-size: 10px; letter-spacing: 1px; }
+    button.cement { color: #fa8; border-color: #643; }
+    button.cement:hover:not(:disabled) { background: #2a1f10; }
+    button.answer { color: #7cf; border-color: #245; }
+    button.answer:hover:not(:disabled) { background: #102030; }
+    .wish-card.cemented { border-color: #644020; background: #1e1812; }
+    .wish-card.cemented .wish-content { color: #c8a87a; }
+    .wish-cemented-badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 3px;
+      background: #2a1a0a; color: #fa8; border: 1px solid #643;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .wish-card.resolved { border-color: #1e4050; background: #111d25; }
+    .wish-card.resolved .wish-content { color: #8aabbb; }
+    .wish-resolved-badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 3px;
+      background: #0e2230; color: #5bc; border: 1px solid #1a5070;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .wish-resolved-memory {
+      font-size: 11px; color: #5a8a99; background: #0c1820;
+      border-radius: 4px; padding: 6px 9px;
+      border-left: 2px solid #1a6070; line-height: 1.5;
+    }
+    .wish-answer-form { display: flex; flex-direction: column; gap: 6px; }
+    .wish-answer-input {
+      width: 100%; background: #111; border: 1px solid #334; color: #ccc;
+      padding: 7px 8px; font-family: monospace; font-size: 12px;
+      border-radius: 4px; resize: vertical; min-height: 58px;
+    }
+    .wish-answer-btns { display: flex; gap: 6px; }
+    .wish-answer-btns button { flex: 0 0 auto; padding: 4px 12px; font-size: 11px; }
+
+    #wish-status { font-size: 11px; color: #666; min-height: 14px; margin-top: 8px; }
+    #wish-status.ok  { color: #6c6; }
+    #wish-status.err { color: #f66; }
+
     /* ── Memories panel ──────────────────────────────────────────────── */
     .mem-toolbar {
       display: flex;
@@ -260,6 +329,8 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('images')">Images</button>
     <button class="tab-btn" onclick="switchTab('memories')">Memories</button>
+    <button class="tab-btn" onclick="switchTab('wishes')">Wishes</button>
+    <button class="tab-btn" onclick="switchTab('stats')">Stats</button>
   </div>
 
   <!-- ── Images panel ──────────────────────────────────────────────── -->
@@ -270,8 +341,8 @@
         <div class="card-img">
           {% if state.has_any %}
             <img id="img-{{ state.key }}"
-                 src="/persona/image/{{ state.key }}?tier={{ 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') }}&t=0"
-                 alt="{{ state.key }}" />
+                 data-src="/persona/image/{{ state.key }}?tier={{ 'uhq' if state.has_uhq else ('mq' if state.has_hq else 'fast') }}&t=0"
+                 alt="{{ state.key }}" loading="lazy" />
           {% else %}
             no image
           {% endif %}
@@ -311,6 +382,19 @@
     </div>
   </div>
 
+  <!-- ── Wishes panel ──────────────────────────────────────────────── -->
+  <div id="panel-wishes" class="panel">
+    <div class="wish-toolbar">
+      <span class="wish-count" id="wish-count"></span>
+      <div style="display:flex;gap:8px;">
+        <button id="wish-gen-btn" onclick="generateWishes()" style="width:auto;padding:5px 14px;">Generate 5 Wishes</button>
+        <button class="danger" onclick="clearAllWishes()" style="width:auto;padding:5px 14px;">Clear All</button>
+      </div>
+    </div>
+    <div class="wish-list" id="wish-list"></div>
+    <div id="wish-status"></div>
+  </div>
+
   <!-- ── Memories panel ────────────────────────────────────────────── -->
   <div id="panel-memories" class="panel">
     <div class="mem-toolbar">
@@ -319,6 +403,42 @@
     </div>
     <div class="mem-list" id="mem-list"></div>
     <div id="mem-status"></div>
+  </div>
+
+  <!-- ── Stats panel ─────────────────────────────────────────────────── -->
+  <div id="panel-stats" class="panel">
+    <div style="max-width:520px;margin-top:8px;">
+      <div id="stats-display" style="font-size:12px;line-height:2;margin-bottom:18px;"></div>
+
+      <!-- Custom moods section -->
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:8px;">Custom Moods (LLM-generated)</div>
+      <div id="custom-moods-display" style="margin-bottom:14px;font-size:11px;color:#7788bb;font-style:italic;">None yet.</div>
+
+      <!-- Grant controls -->
+      <div style="display:flex;gap:10px;margin-bottom:10px;">
+        <div>
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:4px;">Grant XP</div>
+          <input id="grant-xp-input" type="number" value="100" min="1"
+                 style="width:90px;background:#1a1a2e;border:1px solid #2a2a44;color:#ccc;padding:4px 8px;border-radius:4px;font-family:monospace;">
+          <button onclick="grantStats('xp')" style="margin-left:6px;">Grant XP</button>
+        </div>
+        <div>
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:4px;">Grant Affection</div>
+          <input id="grant-aff-input" type="number" value="10" min="1"
+                 style="width:90px;background:#1a1a2e;border:1px solid #2a2a44;color:#ccc;padding:4px 8px;border-radius:4px;font-family:monospace;">
+          <button onclick="grantStats('affection')" style="margin-left:6px;">Grant</button>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <button id="stats-toggle-btn" onclick="toggleStats()" style="width:auto;padding:5px 14px;">Disable Stats</button>
+        <button onclick="triggerMoodGen()" style="width:auto;padding:5px 14px;">Generate Mood Now</button>
+        <button onclick="clearCustomMoods()" style="width:auto;padding:5px 14px;">Clear Custom Moods</button>
+        <button class="danger" onclick="resetStats()" style="width:auto;padding:5px 14px;">Reset All Stats</button>
+      </div>
+      <div id="stats-status" style="font-size:11px;margin-top:8px;color:#6c6;min-height:14px;"></div>
+    </div>
   </div>
 
   <!-- ── Experiment modal ───────────────────────────────────────────── -->
@@ -394,12 +514,135 @@
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       document.getElementById('panel-' + name).classList.add('active');
       location.hash = name;
+      if (name === 'images') {
+        document.querySelectorAll('#panel-images img[data-src]').forEach(img => {
+          if (!img.src || img.src === window.location.href) img.src = img.dataset.src;
+        });
+      }
       if (name === 'memories') loadMemories();
+      if (name === 'wishes') loadWishes();
+      if (name === 'stats') loadStats();
     }
 
-    // Restore tab from hash on load
+    // Restore tab from hash on load; default to images (which also triggers deferred load)
     const _hash = location.hash.slice(1);
-    if (_hash === 'memories' || _hash === 'images') switchTab(_hash);
+    if (['memories', 'images', 'wishes', 'stats'].includes(_hash)) switchTab(_hash);
+    else switchTab('images');
+
+    // ── Stats tab ─────────────────────────────────────────────────────
+    function _applyStatsEnabled(enabled) {
+      const btn = document.getElementById('stats-toggle-btn');
+      if (!btn) return;
+      btn.textContent = enabled ? 'Disable Stats' : 'Enable Stats';
+      btn.style.background = enabled ? '' : '#2a3a2a';
+      btn.style.color = enabled ? '' : '#6c6';
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/persona/stats');
+        const s = await res.json();
+        const el = document.getElementById('stats-display');
+        if (!el) return;
+        _applyStatsEnabled(s.enabled !== false);
+        const xpPct = s.xp_needed > 0 ? Math.round(s.xp_progress / s.xp_needed * 100) : 100;
+        const enabledLabel = s.enabled === false
+          ? ' <span style="color:#c88;font-size:10px;">[DISABLED]</span>'
+          : '';
+        el.innerHTML = `
+          <b>Level</b>: ${s.level}${enabledLabel} &nbsp; <b>XP</b>: ${s.xp} &nbsp;
+          <span style="color:#555">(${s.xp_progress}/${s.xp_needed} to next, ${xpPct}%)</span><br>
+          <b>Affection</b>: ${s.affection}/100 <span style="color:#555">(floor: ${s.affection_floor ?? 0})</span><br>
+          <b>Energy</b>: ${s.energy}/100 <span style="color:#555">(clock-driven, not stored)</span><br>
+          <b>Streak</b>: ${s.streak_days} day(s)<br>
+          <b>Unlocked moods</b>: ${(s.unlocked_moods || []).join(', ')}
+        `;
+        const cm = document.getElementById('custom-moods-display');
+        if (cm) {
+          const custom = s.custom_moods || [];
+          if (custom.length === 0) {
+            cm.innerHTML = '<span style="color:#444;font-style:italic;">None yet.</span>';
+          } else {
+            cm.innerHTML = custom.map(m => {
+              const date = m.created_at ? m.created_at.slice(0, 10) : '?';
+              return `<div style="margin-bottom:6px;padding:6px 10px;background:#1a1a2e;border:1px solid #2a2a44;border-radius:6px;">
+                <span style="color:#9af;font-weight:bold;">${m.key}</span>
+                <span style="color:#555;margin-left:8px;">Lv${m.level} · ${date}</span><br>
+                <span style="color:#7788bb;font-size:10px;">${m.modifier}</span>
+              </div>`;
+            }).join('');
+          }
+        }
+      } catch (e) {
+        document.getElementById('stats-display').textContent = 'Error loading stats.';
+      }
+    }
+
+    async function grantStats(field) {
+      const amount = parseInt(
+        document.getElementById(field === 'xp' ? 'grant-xp-input' : 'grant-aff-input').value, 10
+      );
+      if (!amount || amount < 1) return;
+      const body = {};
+      body[field] = amount;
+      try {
+        await fetch('/persona/stats/grant', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        document.getElementById('stats-status').textContent = `Granted ${amount} ${field}.`;
+        await loadStats();
+      } catch (e) {
+        document.getElementById('stats-status').textContent = 'Error.';
+      }
+    }
+
+    async function resetStats() {
+      if (!confirm('Reset all persona stats to zero? This also clears custom moods.')) return;
+      try {
+        await fetch('/persona/stats/reset', {method: 'POST'});
+        document.getElementById('stats-status').textContent = 'Stats reset.';
+        await loadStats();
+      } catch (e) {
+        document.getElementById('stats-status').textContent = 'Error.';
+      }
+    }
+
+    async function triggerMoodGen() {
+      try {
+        const res = await fetch('/persona/stats/generate-mood', {method: 'POST'});
+        const d = await res.json();
+        document.getElementById('stats-status').textContent = d.message || 'Generation started.';
+        setTimeout(loadStats, 25000); // reload after ~25s to show result if fast
+      } catch (e) {
+        document.getElementById('stats-status').textContent = 'Error.';
+      }
+    }
+
+    async function toggleStats() {
+      try {
+        const res = await fetch('/persona/stats/toggle', {method: 'POST'});
+        const d = await res.json();
+        _applyStatsEnabled(d.enabled);
+        document.getElementById('stats-status').textContent =
+          d.enabled ? 'Stats enabled.' : 'Stats disabled — no XP or affection will be tracked.';
+        await loadStats();
+      } catch (e) {
+        document.getElementById('stats-status').textContent = 'Error.';
+      }
+    }
+
+    async function clearCustomMoods() {
+      if (!confirm('Remove all LLM-generated custom moods?')) return;
+      try {
+        await fetch('/persona/stats/clear-custom-moods', {method: 'POST'});
+        document.getElementById('stats-status').textContent = 'Custom moods cleared.';
+        await loadStats();
+      } catch (e) {
+        document.getElementById('stats-status').textContent = 'Error.';
+      }
+    }
 
     // ── Images tab ────────────────────────────────────────────────────
     function viewTier(state, tier) {
@@ -544,6 +787,177 @@
         setMemStatus('All memories cleared.', 'ok');
         await loadMemories();
       } catch { setMemStatus('Request failed.', 'err'); }
+    }
+
+    // ── Wishes tab ────────────────────────────────────────────────────
+    function renderWishes(wishes) {
+      const list  = document.getElementById('wish-list');
+      const count = document.getElementById('wish-count');
+      // Display newest first
+      const reversed = [...wishes].reverse();
+      count.textContent = wishes.length ? `${wishes.length} wish${wishes.length === 1 ? '' : 'es'}` : '';
+      if (!wishes.length) {
+        list.innerHTML = '<div class="wish-empty">No wishes yet — click Generate to ask Ren what she\'s missing.</div>';
+        return;
+      }
+      list.innerHTML = reversed.map((w, ri) => {
+        const i = wishes.length - ri;  // 1-based index in original array (for delete)
+        const cemented = w.cemented || false;
+        const resolved = w.resolved || false;
+        const cls = cemented ? ' cemented' : (resolved ? ' resolved' : '');
+        const badge = cemented
+          ? '<span class="wish-cemented-badge">cemented</span>'
+          : resolved
+            ? '<span class="wish-resolved-badge">resolved</span>'
+            : '';
+        const resolvedMemory = resolved && w.resolved_memory
+          ? `<div class="wish-resolved-memory">${escHtml(w.resolved_memory)}</div>`
+          : '';
+        const answerForm = (!cemented && !resolved) ? `
+          <div class="wish-answer-form" id="answer-form-${i}" style="display:none">
+            <textarea id="answer-text-${i}" class="wish-answer-input" rows="2" placeholder="Your answer…"></textarea>
+            <div class="wish-answer-btns">
+              <button class="answer" onclick="submitAnswer(${i})">Resolve</button>
+              <button class="danger" onclick="hideAnswerForm(${i})">Cancel</button>
+            </div>
+          </div>` : '';
+        return `
+          <div class="wish-card${cls}" id="wish-${i}">
+            <div class="wish-row">
+              <div class="wish-main">
+                <div class="wish-content">${escHtml(w.content)}</div>
+                <div class="wish-meta">
+                  <span class="wish-time">${fmtDate(w.timestamp)}</span>
+                  ${w.theme ? `<span class="wish-ctx">${escHtml(w.theme)}</span>` : ''}
+                  ${w.state_context ? `<span class="wish-ctx" style="opacity:.5">${escHtml(w.state_context)}</span>` : ''}
+                  ${badge}
+                </div>
+                ${resolvedMemory}
+              </div>
+              <div class="wish-actions" id="wish-actions-${i}">
+                ${!cemented && !resolved ? `<button class="answer wish-del" onclick="showAnswerForm(${i})">Answer</button>` : ''}
+                <button class="cement wish-del" onclick="cementWish(${i})" ${cemented || resolved ? 'disabled' : ''}>Cement</button>
+                <button class="danger wish-del" onclick="deleteWish(${i})" ${resolved ? 'disabled' : ''}>Reject</button>
+              </div>
+            </div>
+            ${answerForm}
+          </div>`;
+      }).join('');
+    }
+
+    function setWishStatus(msg, cls = '') {
+      const el = document.getElementById('wish-status');
+      el.textContent = msg;
+      el.className = cls;
+    }
+
+    async function loadWishes() {
+      setWishStatus('Loading…');
+      try {
+        const resp = await fetch('/persona/wishes');
+        renderWishes(await resp.json());
+        setWishStatus('');
+      } catch { setWishStatus('Failed to load wishes.', 'err'); }
+    }
+
+    async function generateWishes() {
+      const btn = document.getElementById('wish-gen-btn');
+      btn.disabled = true;
+      setWishStatus('Generating… (this may take ~30s)');
+      try {
+        const resp = await fetch('/persona/wishes/generate', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          setWishStatus(data.error || 'Generation failed.', 'err');
+          return;
+        }
+        setWishStatus(`Generated ${data.wishes.length} new wishes.`, 'ok');
+        await loadWishes();
+      } catch { setWishStatus('Request failed.', 'err'); }
+      finally { btn.disabled = false; }
+    }
+
+    async function cementWish(index) {
+      setWishStatus('Cementing…');
+      try {
+        const resp = await fetch(`/persona/wishes/${index}/cement`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { setWishStatus(data.error || 'Failed.', 'err'); return; }
+        setWishStatus('Cemented as a persona memory.', 'ok');
+        await loadWishes();
+      } catch { setWishStatus('Request failed.', 'err'); }
+    }
+
+    async function deleteWish(index) {
+      setWishStatus('Removing…');
+      try {
+        const resp = await fetch(`/persona/wishes/${index}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { setWishStatus(data.error || 'Delete failed.', 'err'); return; }
+        setWishStatus('Rejected.', 'ok');
+        await loadWishes();
+      } catch { setWishStatus('Request failed.', 'err'); }
+    }
+
+    async function clearAllWishes() {
+      if (!confirm('Delete all wishes? This cannot be undone.')) return;
+      setWishStatus('Clearing…');
+      try {
+        const resp = await fetch('/persona/wishes', { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) { setWishStatus(data.error || 'Clear failed.', 'err'); return; }
+        setWishStatus('All wishes cleared.', 'ok');
+        await loadWishes();
+      } catch { setWishStatus('Request failed.', 'err'); }
+    }
+
+    function showAnswerForm(index) {
+      const form    = document.getElementById(`answer-form-${index}`);
+      const actions = document.getElementById(`wish-actions-${index}`);
+      if (!form) return;
+      form.style.display = '';
+      actions.querySelectorAll('button').forEach(b => b.disabled = true);
+      const ta = document.getElementById(`answer-text-${index}`);
+      if (ta) ta.focus();
+    }
+
+    function hideAnswerForm(index) {
+      const form    = document.getElementById(`answer-form-${index}`);
+      const actions = document.getElementById(`wish-actions-${index}`);
+      if (!form) return;
+      form.style.display = 'none';
+      actions.querySelectorAll('button').forEach(b => b.disabled = false);
+    }
+
+    async function submitAnswer(index) {
+      const ta = document.getElementById(`answer-text-${index}`);
+      const answer = ta ? ta.value.trim() : '';
+      if (!answer) { setWishStatus('Please type an answer first.', 'err'); return; }
+      const form    = document.getElementById(`answer-form-${index}`);
+      const actions = document.getElementById(`wish-actions-${index}`);
+      form.querySelectorAll('button').forEach(b => b.disabled = true);
+      actions.querySelectorAll('button').forEach(b => b.disabled = true);
+      setWishStatus('Resolving… (this may take ~30s)');
+      try {
+        const resp = await fetch(`/persona/wishes/${index}/answer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          setWishStatus(data.error || 'Failed to resolve wish.', 'err');
+          form.querySelectorAll('button').forEach(b => b.disabled = false);
+          actions.querySelectorAll('button').forEach(b => b.disabled = false);
+          return;
+        }
+        setWishStatus('Resolved — memory saved.', 'ok');
+        await loadWishes();
+      } catch {
+        setWishStatus('Request failed.', 'err');
+        form.querySelectorAll('button').forEach(b => b.disabled = false);
+        actions.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
     }
 
     // ── Experiment modal ──────────────────────────────────────────────

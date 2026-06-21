@@ -70,6 +70,11 @@ class MemoryService:
         cls._save(memories)
         ttl_str = f" (expires in {ttl_hours}h)" if ttl_hours else ""
         print(f"[Memory] Stored ({source}/{subject}){ttl_str}: {content}")
+        try:
+            from agents.stats_service import on_memory_stored
+            on_memory_stored(source=source)
+        except Exception as e:
+            print(f'[Memory] stats error: {e}')
 
     @classmethod
     def get_all(cls) -> list[dict]:
@@ -163,14 +168,14 @@ class MemoryService:
     @classmethod
     def extract_from_exchange(cls, exchange: str) -> None:
         """Ask Ollama if the exchange reveals a user fact (permanent or transient); store it if so."""
-        from agents.ollama_service import call_ollama
+        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)
             if existing else "None yet."
         )
         try:
-            from agents.image_gen_service import ImageGenService
+            from agents.image.image_gen_service import ImageGenService
             if ImageGenService._in_progress:
                 return  # GPU busy; skip this exchange
         except Exception:
@@ -209,7 +214,8 @@ class MemoryService:
             "  - Work situation: 'The user is working from home today [transient:1d]'\n"
             "  - Recent one-off events: 'The user just finished a big project [transient:3d]'\n"
             "Do NOT tag [transient] for: stable preferences, permanent traits, recurring patterns.\n\n"
-            "Output ONE short sentence starting with 'The user' (with [transient:TIMEFRAME] if applicable), or exactly 'none'. Do not explain."
+            "Output ONE short sentence starting with 'The user' (with [transient:TIMEFRAME] if applicable), or exactly 'none'. Do not explain. "
+            "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known:\n{existing_text}\n\nExchange:\n{exchange}"
         result = call_ollama(user, timeout=15, system=system)
@@ -222,14 +228,14 @@ class MemoryService:
     @classmethod
     def extract_persona_from_exchange(cls, exchange: str) -> None:
         """Ask Ollama if the Persona's reply reveals an opinion, commitment, or expressed trait worth storing."""
-        from agents.ollama_service import call_ollama
+        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing if m.get('subject') == 'persona')
             or "None yet."
         )
         try:
-            from agents.image_gen_service import ImageGenService
+            from agents.image.image_gen_service import ImageGenService
             if ImageGenService._in_progress:
                 return
         except Exception:
@@ -253,7 +259,8 @@ class MemoryService:
             "- If the persona's statement is mixed with user observations, extract only the persona's part, or output: none if nothing clean remains.\n"
             "- Only store if the trait is stable and clearly expressed — if there is any doubt, output: none\n\n"
             "Transient tag: append [transient:TIMEFRAME] only for time-bound commitments.\n\n"
-            "Output ONE short sentence starting with 'I', or exactly 'none'. Do not explain."
+            "Output ONE short sentence starting with 'I', or exactly 'none'. Do not explain. "
+            "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known about me:\n{existing_text}\n\nExchange:\n{exchange}"
         result = call_ollama(user, timeout=15, system=system)
@@ -270,14 +277,14 @@ class MemoryService:
         Observed memories expire after OBSERVE_TTL_HOURS — they must re-confirm before
         being treated as established habits. Passes existing memories for semantic dedup.
         """
-        from agents.ollama_service import call_ollama
+        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)
             if existing else "None yet."
         )
         try:
-            from agents.image_gen_service import ImageGenService
+            from agents.image.image_gen_service import ImageGenService
             if ImageGenService._in_progress:
                 return  # GPU busy; skip this observation
         except Exception:
@@ -291,7 +298,8 @@ class MemoryService:
             "- Do not store anything already covered by what is known.\n"
             "- Do not speculate about what an observation might imply — only state what was directly observed as a pattern.\n"
             "- If there is any doubt, output: none\n\n"
-            "Output ONE short sentence or exactly 'none'. Do not explain your reasoning."
+            "Output ONE short sentence or exactly 'none'. Do not explain your reasoning. "
+            "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known:\n{existing_text}\n\nNew observation: {situation}"
         result = call_ollama(user, timeout=15, system=system)

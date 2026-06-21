@@ -257,6 +257,8 @@
     .chat-badge { min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:rgba(99,102,241,0.75); color:rgba(255,255,255,0.9); font-size:9px; font-weight:600; display:flex; align-items:center; justify-content:center; }
     .chat-chevron { font-size:14px; color:rgba(255,255,255,0.25); transition:transform 0.28s cubic-bezier(0.4,0,0.2,1); display:inline-block; }
     .chat-chevron.collapsed { transform:rotate(180deg); }
+    #btn-clear-chat { flex-shrink:0; width:16px; height:16px; border:none; background:transparent; color:rgba(255,255,255,0.2); font-size:14px; line-height:1; padding:0; cursor:pointer; display:none; align-items:center; justify-content:center; border-radius:3px; transition:color 0.15s, background 0.15s; }
+    #btn-clear-chat:hover { color:rgba(255,80,80,0.8); background:rgba(255,80,80,0.12); }
     /* Grip dots — visible in constrained mode only */
     #chat-toggle-grip { flex-shrink:0; width:24px; height:100%; display:none; align-items:center; justify-content:center; }
     #chat-toggle.splitter-active #chat-toggle-grip { display:flex; }
@@ -377,6 +379,136 @@
     #btn-send:hover  { background: rgba(99,102,241,1); }
     #btn-send:active { transform: scale(0.93); }
     #btn-send:disabled { opacity: 0.3; cursor: default; }
+
+    /* ─── Small window adaptations ──────────────────────────────────────────── */
+    /* Narrow window: take speak button out of the flex row so it no longer
+       steals horizontal space and forces the quote onto multiple lines.
+       Instead, overlay it in the top-right corner of the bubble-wrap area. */
+    @media (max-width: 260px) {
+      /* Tighter header */
+      #header { height: 26px; padding: 0 6px 0 10px; }
+      #header-title { font-size: 9.5px; }
+      .header-btn { width: 17px; height: 17px; font-size: 11px; }
+      #btn-tts-toggle { width: 19px; height: 19px; font-size: 10px; margin-right: 2px; }
+
+      /* Bubble: fill the wrap so the overlaid button always lands on it.
+         max-width must also be overridden — base rule is 88%, which wins over width: 100%. */
+      #persona-bubble-wrap { gap: 0; }
+      .persona-bubble {
+        width: 100%;
+        max-width: none;
+        font-size: 11px;
+        padding: 5px 28px 5px 10px; /* right indent reserves space for the overlay button */
+        line-height: 1.45;
+      }
+
+      /* Speak button: overlay, vertically centred regardless of bubble line-count */
+      #persona-speak-btn {
+        position: absolute;
+        top: 50%; transform: translateY(-50%);
+        right: 4px;
+        margin-top: 0;
+        width: 22px; height: 22px;
+        font-size: 11px;
+      }
+
+      /* Tighter input bar */
+      #input-bar { padding: 5px 8px 8px; gap: 6px; }
+      #chat-input { padding: 7px 10px; font-size: 12px; }
+      #btn-send { width: 30px; height: 30px; border-radius: 8px; }
+    }
+
+    /* Short window: tighten vertical rhythm */
+    @media (max-height: 400px) {
+      #header { height: 26px; }
+      #input-bar { padding: 4px 8px 7px; }
+      #chat-input { padding: 7px 10px; }
+      #btn-send { width: 30px; height: 30px; }
+      #chat-history { padding: 3px 10px 4px; gap: 4px; }
+    }
+
+    /* ── Stats HUD overlay ─────────────────────── */
+    #persona-hud {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 6;
+      background: rgba(7, 9, 26, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 6px 10px;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+    }
+    #persona-hud.visible { display: flex; }
+    .hud-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .hud-level {
+      font-size: 9.5px;
+      font-weight: 500;
+      color: rgba(99, 102, 241, 0.9);
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      min-width: 26px;
+    }
+    .hud-bar-wrap {
+      flex: 1;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .hud-bar {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+    .hud-xp-bar  { background: linear-gradient(90deg, rgba(99,102,241,0.85), rgba(139,92,246,0.75)); }
+    .hud-aff-bar { background: linear-gradient(90deg, rgba(244,63,94,0.85), rgba(251,113,133,0.7)); }
+    .hud-nrg-bar { background: linear-gradient(90deg, rgba(234,179,8,0.85), rgba(250,204,21,0.7)); }
+    .hud-icon {
+      font-size: 8px;
+      opacity: 0.6;
+      white-space: nowrap;
+    }
+    .hud-xp-text {
+      font-size: 8.5px;
+      color: rgba(255,255,255,0.3);
+      white-space: nowrap;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* ── Unlock toast ──────────────────────────── */
+    #persona-unlock-toast {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-36px);
+      background: rgba(99, 102, 241, 0.92);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 5px 12px;
+      border-radius: 18px;
+      filter: drop-shadow(0 3px 10px rgba(99,102,241,0.5));
+      pointer-events: none;
+      opacity: 0;
+      transition: transform 0.35s ease, opacity 0.35s ease;
+      z-index: 10;
+      white-space: nowrap;
+    }
+    #persona-unlock-toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -406,12 +538,31 @@
         <div id="persona-bubble" class="persona-bubble">&nbsp;</div>
         <button id="persona-speak-btn" title="Speak" style="display:none;">&#128266;</button>
       </div>
+
+      <!-- Stats HUD — absolute at bottom of portrait -->
+      <div id="persona-hud">
+        <div class="hud-row">
+          <span class="hud-level" id="hud-level">Lv.1</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-xp-bar" id="hud-xp-bar" style="width:0%"></div></div>
+          <span class="hud-xp-text" id="hud-xp-text">0/0</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-icon">♡</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-aff-bar" id="hud-aff-bar" style="width:0%"></div></div>
+          <span class="hud-icon">⚡</span>
+          <div class="hud-bar-wrap"><div class="hud-bar hud-nrg-bar" id="hud-nrg-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Unlock toast -->
+      <div id="persona-unlock-toast"></div>
     </div>
 
     <div id="chat-toggle" aria-label="Drag to resize / tap to collapse chat">
       <div class="section-divider-line"></div>
       <span id="chat-toggle-label">Chat</span>
       <span id="chat-badge" class="chat-badge" style="display:none;">0</span>
+      <button id="btn-clear-chat" title="Clear chat history">&#x2715;</button>
       <span id="chat-toggle-grip" aria-hidden="true"><span class="grip-dots"></span></span>
       <span id="chat-chevron" class="chat-chevron">&#8964;</span>
     </div>

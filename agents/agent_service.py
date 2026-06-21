@@ -11,7 +11,9 @@ HELP_TEXT = (
     "manage your shopping list and to-do list (add or show), "
     "control Spotify (play, pause, skip, previous, what's playing, volume), "
     "set countdown timers, set time-based reminders ('remind me at 18:30 to call the vet'), "
-    "and control the lights (on, off, rainbow mode)."
+    "control the lights (on, off, rainbow mode), "
+    "and manage restaurant reservations ('show restaurants', "
+    "'book a table at [restaurant] for [N] on [date]', 'my reservations', 'cancel reservation [code]')."
 )
 
 
@@ -49,9 +51,10 @@ class AgentService:
             return WeatherAgentService.get_weather("today")
 
         # --- Calendar ---
-        if "today" in q:
+        _calendar_words = {"events", "calendar", "schedule", "meetings", "appointments", "agenda"}
+        if "today" in q and words.intersection(_calendar_words):
             return CalendarAgentService.get_calendar_events("today")
-        if "tomorrow" in q:
+        if "tomorrow" in q and words.intersection(_calendar_words):
             return CalendarAgentService.get_calendar_events("tomorrow")
 
         # --- Shopping list ---
@@ -87,6 +90,11 @@ class AgentService:
         # --- Smart home / lights ---
         if "lights" in q or "led" in q:
             return cls._handle_lights(q)
+
+        # --- Restaurant reservations ---
+        from agents.reservation_agent_service import ReservationAgentService
+        if (result := ReservationAgentService.handle_intent(query)) is not None:
+            return result
 
         return None
 

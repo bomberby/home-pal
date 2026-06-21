@@ -4,11 +4,14 @@ Contains a minimal RRDB network implementation (no basicsr dependency)
 and weight downloading/caching.  Used by ImageGenService._upgrade_loop()
 as a fallback when an image has no tEXt metadata for prompt-based HQ regen.
 """
+import urllib.request
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
 
 # Final output size for HQ images
 FINAL_SIZE = 1024
@@ -88,7 +91,6 @@ def get_upscaler() -> _RRDBNet | None:
     _REALESRGAN_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not _REALESRGAN_WEIGHTS_PATH.exists():
         print("[ImageGen] Downloading RealESRGAN anime weights (~17MB)...")
-        import urllib.request
         try:
             urllib.request.urlretrieve(_REALESRGAN_WEIGHTS_URL, _REALESRGAN_WEIGHTS_PATH)
             print("[ImageGen] RealESRGAN weights downloaded.")
@@ -107,7 +109,6 @@ def get_upscaler() -> _RRDBNet | None:
 
 def upscale(src: Path, dst: Path) -> None:
     """Real-ESRGAN upscale a PNG file to dst (atomic write via tmp rename)."""
-    from PIL import Image
     img = Image.open(src).convert('RGB')
     upscale_image(img, dst)
 
@@ -118,8 +119,6 @@ def upscale_image(img, dst: Path) -> None:
     if model is None:
         return
     try:
-        import numpy as np
-        from PIL import Image
         tensor = torch.from_numpy(
             np.array(img).astype('float32') / 255.0
         ).permute(2, 0, 1).unsqueeze(0)

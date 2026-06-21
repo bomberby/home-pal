@@ -177,10 +177,13 @@ if sys.platform == 'win32':
 
 
 # pywebview's create_window(width=W, height=H) creates a WinForms Form whose
-# GetWindowRect returns W−16 × H−39.  Compensate so the saved values, when
-# passed back to create_window, restore the same visual size.
+# GetWindowRect returns W−16 × H−39 at 100% DPI.  These defaults are replaced
+# at runtime by _calibrate_chrome_offsets() which measures the actual chrome on
+# the user's system (DPI scaling changes both offsets).
 _FORM_W_OFFSET = 16
 _FORM_H_OFFSET = 39
+_form_w_offset: int = _FORM_W_OFFSET  # calibrated at first load
+_form_h_offset: int = _FORM_H_OFFSET
 
 # ─── Win32 constants ──────────────────────────────────────────────────────────
 GWL_STYLE          = -16
@@ -188,6 +191,7 @@ WS_THICKFRAME      = 0x00040000
 GWLP_WNDPROC       = -4
 WM_NCCALCSIZE      = 0x0083
 WM_EXITSIZEMOVE    = 0x0232
+WM_MOVE            = 0x0003
 WM_SETICON         = 0x0080
 IMAGE_ICON         = 1
 LR_LOADFROMFILE    = 0x00000010
@@ -196,26 +200,39 @@ ICON_SMALL         = 0
 ICON_BIG           = 1
 
 
+def _get_dpi_scale(hwnd: int) -> float:
+    """DPI scale factor for the monitor the window is on (e.g. 1.5 for 150%).
+    GetDpiForWindow requires Windows 10 build 1607+; falls back to 1.0."""
+    if sys.platform != 'win32' or not hwnd:
+        return 1.0
+    try:
+        dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+        return (dpi / 96.0) if dpi > 0 else 1.0
+    except Exception:
+        return 1.0
+
+
 def _capture_rect(hwnd: int) -> None:
-    """Read GetWindowRect into _last_known_rect (called at stable moments only).
-    Width/height are inflated by the pywebview create_window offset so the saved
-    values can be passed straight back to create_window next session."""
+    """Read GetWindowRect into _last_known_rect in logical (DPI-independent) pixels.
+    GetWindowRect returns physical screen pixels; dividing by the DPI scale converts
+    them to the logical pixel units that create_window expects."""
     if sys.platform != 'win32' or not hwnd:
         return
     try:
         rc = ctypes.wintypes.RECT()
         if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rc)):
-            w = (rc.right  - rc.left) + _FORM_W_OFFSET
-            h = (rc.bottom - rc.top)  + _FORM_H_OFFSET
-            _last_known_rect.update({"x": rc.left, "y": rc.top, "width": w, "height": h})
+            scale = _get_dpi_scale(hwnd)
+            x = round(rc.left  / scale)
+            y = round(rc.top   / scale)
+            w = round((rc.right  - rc.left) / scale) + _form_w_offset
+            h = round((rc.bottom - rc.top)  / scale) + _form_h_offset
+            _last_known_rect.update({"x": x, "y": y, "width": w, "height": h})
     except Exception as e:
         print(f"[launcher] _capture_rect failed: {e}")
 
 
 def _setup_parent_hooks(hwnd: int) -> None:
-    """Subclass the top-level window to intercept WM_EXITSIZEMOVE — the only
-    moment after a user resize/move where GetWindowRect is guaranteed stable
-    (close animation has not yet started, resize modal loop has just ended)."""
+    """Subclass the top-level window to intercept WM_EXITSIZEMOVE and WM_MOVE."""
     global _parent_wndproc_ref, _parent_old_proc
     if sys.platform != 'win32' or not hwnd:
         return
@@ -236,6 +253,13 @@ def _setup_parent_hooks(hwnd: int) -> None:
             return result
         if msg == WM_EXITSIZEMOVE:
             _capture_rect(hwnd)
+        if msg == WM_MOVE:
+            # WM_EXITSIZEMOVE doesn't fire for pywebview CSS-drag moves.
+            # Capture on every WM_MOVE while the left mouse button is held —
+            # this covers user drags but ignores system-triggered repositions
+            # (e.g. pywebview moving the window during page reload).
+            if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000:
+                _capture_rect(hwnd)
         return _CallWindowProcW(_parent_old_proc, h, msg, wparam, lparam)
 
     _parent_wndproc_ref = WNDPROCTYPE(_wndproc)
@@ -407,29 +431,41 @@ def main() -> None:
 
     api._window = window
 
-    def _on_loaded():
-        hwnd = _find_hwnd(WINDOW_TITLE)
-        if hwnd:
-            api._hwnd = hwnd
-            # Add WS_THICKFRAME so DefWindowProc handles NC resize hit-codes.
-            # Without it, HTBOTTOM/HTRIGHT/HTBOTTOMRIGHT from the child hook are
-            # silently ignored and the resize modal loop never starts.
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style | WS_THICKFRAME)
-            # Install the hook BEFORE SWP_FRAMECHANGED so the WM_NCCALCSIZE
-            # message triggered by SWP_FRAMECHANGED is already intercepted and
-            # the border is trimmed from the very first frame.
-            _setup_parent_hooks(hwnd)
-            ctypes.windll.user32.SetWindowPos(
-                hwnd, 0, 0, 0, 0, 0,
-                0x0001 | 0x0002 | 0x0004 | 0x0020,   # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
-            )
-            _apply_rounded_corners(hwnd, window.width, window.height)
-            _capture_rect(hwnd)
-        else:
-            print("[launcher] WARNING: could not find HWND")
+    _win32_initialized = False
 
-        # Push persisted state into the page (localStorage is ephemeral in WebView2)
+    def _on_loaded():
+        nonlocal _win32_initialized
+        if not _win32_initialized:
+            hwnd = _find_hwnd(WINDOW_TITLE)
+            if hwnd:
+                api._hwnd = hwnd
+                style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_STYLE)
+                ctypes.windll.user32.SetWindowLongW(hwnd, GWL_STYLE, style | WS_THICKFRAME)
+                _setup_parent_hooks(hwnd)
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    0x0001 | 0x0002 | 0x0004 | 0x0020,   # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+                )
+                _apply_rounded_corners(hwnd, window.width, window.height)
+                # Self-calibrate chrome offsets: we know the logical dims we
+                # passed to create_window (pos) and can read the physical dims
+                # from GetWindowRect — the difference is the real offset for
+                # this system's DPI and WS_THICKFRAME chrome.
+                global _form_w_offset, _form_h_offset
+                rc_c = ctypes.wintypes.RECT()
+                if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rc_c)):
+                    s = _get_dpi_scale(hwnd)
+                    cw = pos['width']  - round((rc_c.right  - rc_c.left) / s)
+                    ch = pos['height'] - round((rc_c.bottom - rc_c.top)  / s)
+                    if abs(cw) < 200 and abs(ch) < 200:
+                        _form_w_offset, _form_h_offset = cw, ch
+                        print(f"[launcher] Chrome offsets: W={cw} H={ch} (scale={s:.2f})")
+                _capture_rect(hwnd)
+                _win32_initialized = True
+            else:
+                print("[launcher] WARNING: could not find HWND")
+
+        # Always push persisted state — localStorage is ephemeral in WebView2
         prefs = _load_prefs()
         window.evaluate_js(
             f"if(typeof _applyPersistedTts==='function') _applyPersistedTts({json.dumps(prefs.get('tts_enabled', True))});"
@@ -444,18 +480,6 @@ def main() -> None:
     window.events.shown   += _on_shown
     window.events.loaded  += _on_loaded
     def _on_closing():
-        # GetWindowRect at close is reliable for size (hwnd is confirmed set).
-        # Use it directly so position is always current (WM_EXITSIZEMOVE never
-        # fires for pywebview CSS-drag moves, so the cache position is stale).
-        if api._hwnd:
-            rc = ctypes.wintypes.RECT()
-            ctypes.windll.user32.GetWindowRect(api._hwnd, ctypes.byref(rc))
-            _last_known_rect.update({
-                "x":      rc.left,
-                "y":      rc.top,
-                "width":  (rc.right  - rc.left) + _FORM_W_OFFSET,
-                "height": (rc.bottom - rc.top)  + _FORM_H_OFFSET,
-            })
         _save_pos()
 
     window.events.closing += _on_closing

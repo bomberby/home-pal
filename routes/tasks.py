@@ -34,8 +34,15 @@ def mark_task_as_done(task_id):
     try:
         task = Task.get(Task.id == task_id)
         data = request.json
+        was_done = task.completed
         task.completed = data.get('completed', not task.completed)
         task.save()
+        if task.completed and not was_done:
+            try:
+                from agents.stats_service import on_task_done
+                on_task_done()
+            except Exception as e:
+                print(f'[tasks] stats error: {e}')
         return jsonify(model_to_dict(task)), 200
     except Task.DoesNotExist:
         return jsonify({'error': 'Task not found'}), 404

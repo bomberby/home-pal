@@ -69,6 +69,8 @@ class PersonaContext:
                 end_str = event.get('end', {}).get('dateTime')
                 if not start_str or not end_str:
                     continue
+                if event.get('calendar_purpose') == 'wife':
+                    continue
                 start = parse_dt(start_str)
                 end = parse_dt(end_str)
                 if start <= now < end:

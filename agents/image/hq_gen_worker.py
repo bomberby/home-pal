@@ -11,13 +11,12 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 import traceback
 import warnings
 from datetime import datetime
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import services.log_config as log_config
 log_config.configure()
@@ -28,15 +27,14 @@ import torch
 from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoencoderKL
 
-from agents.gpu_lock import WORKER_PID_PATH, WORKER_HEARTBEAT_PATH, gpu_lock, PRIORITY_QUEUE_DIR, cleanup_stale_priority
-from agents.image_gen_service import (
+from agents.image.gpu_lock import WORKER_PID_PATH, WORKER_HEARTBEAT_PATH, gpu_lock, PRIORITY_QUEUE_DIR, cleanup_stale_priority
+from agents.image.hq_worker_manager import WORKER_BOOT_PATH
+from agents.image.image_gen_service import (
     MODEL_ID, VAE_ID, FIXED_SEED, OUTPUT_DIR, HQ_QUEUE_DIR, UHQ_QUEUE_DIR,
     DEVICE, TORCH_DTYPE,
     ImageGenService,
-    _load_textual_inversions,
-    build_full_prompt, build_negative_prompt,
-    WORKER_BOOT_PATH,
 )
+from agents.image.image_prompt import build_full_prompt, build_negative_prompt, _load_textual_inversions
 
 # ---------------------------------------------------------------------------
 # Model config — edit here when switching models
@@ -307,9 +305,7 @@ def main():
     WORKER_HEARTBEAT_PATH.write_text(str(time.time()))
     _wlog(f"[HQWorker] Boot complete (PID {os.getpid()}).")
 
-    # Heartbeat thread: main loop blocks for the full SD run, so update from a thread.
-    import threading as _threading
-    _threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
     HQ_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
     UHQ_QUEUE_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,15 +1,36 @@
+import hashlib
+import os
 import re
 from flask import Blueprint, jsonify, send_file, render_template, request
 from agents.persona.agent import PersonaAgent
-from agents.image_gen_service import ImageGenService
+from agents.image.image_gen_service import ImageGenService
 
 persona_bp = Blueprint('persona', __name__)
+
+_WATCH_FILES = [
+    'frontend/templates/persona_widget.html',
+    'frontend/templates/persona_desktop.html',
+    'frontend/static/js/persona.js',
+    'frontend/static/js/persona_desktop.js',
+    'frontend/static/css/agent.css',
+]
+
+def _widget_version() -> str:
+    h = hashlib.md5()
+    for path in _WATCH_FILES:
+        try:
+            h.update(str(os.path.getmtime(path)).encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
 
 
 @persona_bp.route('/persona', methods=['GET'])
 def get_persona():
+    version = _widget_version()
     if PersonaAgent.is_absent():
-        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None, 'generating': False})
+        return jsonify({'state': 'absent', 'image_url': None, 'quote': None, 'suggestion': None,
+                        'generating': False, 'widget_version': version})
     state_data = PersonaAgent.get_current_state()
     state = state_data['state']
     quote = state_data.get('quote', '')
@@ -26,7 +47,9 @@ def get_persona():
             image_url = f'/persona/image/{Path(image_path).stem}'
         else:
             image_url = None
-    return jsonify({'state': state, 'image_url': image_url, 'quote': quote, 'suggestion': suggestion, 'generating': generating})
+    return jsonify({'state': state, 'image_url': image_url, 'quote': quote, 'suggestion': suggestion,
+                    'generating': generating, 'stats': state_data.get('stats', {}),
+                    'new_unlock': state_data.get('new_unlock'), 'widget_version': version})
 
 
 @persona_bp.route('/persona/widget')
@@ -43,14 +66,14 @@ def get_persona_image(state):
         return jsonify({'error': 'Invalid state'}), 400
     tier = request.args.get('tier')
     if tier == 'fast':
-        from agents.image_gen_service import OUTPUT_DIR
+        from agents.image.image_gen_service import OUTPUT_DIR
         path = OUTPUT_DIR / f"{state}.png"
     elif tier == 'mq':
         path = ImageGenService._hq_path(state)
     elif tier == 'uhq':
         path = ImageGenService._uhq_path(state)
     elif tier in ('fast_exp', 'mq_exp', 'uhq_exp'):
-        from agents.image_gen_service import OUTPUT_DIR
+        from agents.image.image_gen_service import OUTPUT_DIR
         path = OUTPUT_DIR / f"{state}_{tier}.png"
     else:
         path = ImageGenService.get_cached(state)

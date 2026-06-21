@@ -1,26 +1,29 @@
+import gc
 import json
-import os
 import random
-import signal
-import sys
 import threading
 import time
 import warnings
 from collections import deque
 from pathlib import Path
 
+warnings.filterwarnings("ignore", message="Token indices sequence length is longer than")
+warnings.filterwarnings("ignore", message="Pipelines loaded with `dtype=torch.float16`")
+
 import torch
 from compel import Compel, DiffusersTextualInversionManager
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoencoderKL
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
-from agents.gpu_lock import (
-    GPU_LOCK_PATH, WORKER_PID_PATH, WORKER_HEARTBEAT_PATH,
+from agents.image.gpu_lock import (
     claim_gpu as _claim_gpu_impl,
     cleanup_stale_lock, cleanup_stale_priority,
 )
-from agents.persona.states import CHARACTER_PREFIX
-from agents.realesrgan_upscaler import FINAL_SIZE as _FINAL_SIZE
-from agents.realesrgan_upscaler import upscale as _realesrgan_upscale
+from agents.image.hq_worker_manager import WORKER_BOOT_PATH, start_hq_worker
+from agents.image.image_prompt import build_full_prompt, build_negative_prompt, _load_textual_inversions
+from agents.image.realesrgan_upscaler import FINAL_SIZE as _FINAL_SIZE
+from agents.image.realesrgan_upscaler import upscale as _realesrgan_upscale
 
 MODEL_ID    = "Lykon/dreamshaper-8"
 VAE_ID      = "stabilityai/sd-vae-ft-mse"
@@ -28,43 +31,6 @@ FIXED_SEED  = 42
 OUTPUT_DIR  = Path("tmp/persona")
 HQ_QUEUE_DIR          = Path("env/hq_queue")
 UHQ_QUEUE_DIR         = Path("env/uhq_queue")
-WORKER_BOOT_PATH      = Path("env/hq_worker.booting")
-
-_WORKER_HEARTBEAT_TTL = 90.0  # seconds — 3× the worker's 30s heartbeat write interval
-
-PROMPT_SUFFIX      = ", soft lighting, clean background"
-PROMPT_SUFFIX_DARK = ", clean background"
-DARK_NEGATIVE = (
-    "lamp, artificial lighting, bright interior, warm indoor lighting, "
-    "ceiling light, light on, illuminated room, indoor light source"
-)
-NEGATIVE_PROMPT = (
-    "(worst quality:1.4), (low quality:1.4), (normal quality:1.3), (lowres:1.3), blurry, jpeg artifacts, "
-    "(bad anatomy:1.5), (deformed:1.4), (disfigured:1.4), (mutated:1.4), (malformed:1.4), (merged limbs:1.4), (limbs merging with objects:1.4), (arm becoming object:1.4), "
-    "(extra limbs:1.4), (missing limbs:1.3), (floating limbs:1.4), (disconnected limbs:1.4), "
-    "(extra arms:1.4), (extra legs:1.4), (fused body parts:1.3), "
-    "(bad hands:1.5), (malformed hands:1.5), (mutated hands:1.5), (poorly drawn hands:1.4), "
-    "(extra fingers:1.8), (missing fingers:1.7), (fused fingers:1.7), (too many fingers:1.8), (wrong number of fingers:1.8), (six fingers:1.9), (seven fingers:1.9), "
-    "(too few fingers:1.8), (missing finger:1.8), "
-    "(segmented fingers:1.6), (jointed fingers:1.6), (broken fingers:1.6), (disconnected finger:1.6), "
-    "(deformed face:1.4), (disfigured face:1.4), (malformed face:1.3), (bad face:1.3), "
-    "(cross-eyed:1.2), (asymmetric eyes:1.2), "
-    "multiple people, duplicate, clone, watermark, signature, text, username, writing, letters, words, error, "
-    "(discolored nails:1.4), (bad nails:1.3), (deformed nails:1.3)"
-)
-
-# Textual Inversion negative embeddings — cached to env/weights/ti/ on first load.
-# NOTE: verify these HuggingFace repo IDs before first run; community repos occasionally move.
-TI_WEIGHTS_DIR = Path("env/weights/ti")
-TI_EMBEDDINGS: list[tuple[str, str, str]] = [
-    # (hf_repo_id,  filename,  token)
-    # Add embeddings here to enable them. They are downloaded to TI_WEIGHTS_DIR on first load
-    # and prepended to the negative prompt. Leave empty to disable.
-    # Example: ("yesyeahvh/bad-hands-5", "bad-hands-5.pt", "bad-hands-5")
-]
-
-warnings.filterwarnings("ignore", message="Token indices sequence length is longer than")
-warnings.filterwarnings("ignore", message="Pipelines loaded with `dtype=torch.float16`")
 
 DEVICE     = "cuda" if torch.cuda.is_available() else "cpu"
 TORCH_DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
@@ -75,60 +41,32 @@ if DEVICE == "cpu":
     print("WARNING: CUDA is not available. Image generation will run on CPU and be very slow.")
 
 
-# ------------------------------------------------------------------ #
-#  Prompt building helpers (shared with hq_gen_worker.py)             #
-# ------------------------------------------------------------------ #
-
-_HAND_TRIGGERS = {"hand", "finger", "wave", "hold", "keyboard", "typing", "fanning", "umbrella", "mug", "drink"}
-
-
-def build_full_prompt(scene_prompt: str, state: str) -> str:
-    """Build the full SD prompt from a scene description and state key.
-
-    Applies CHARACTER_PREFIX, period suffix, and conditional hand/ring anchor.
-    """
-    is_dark = state.endswith("_dark")
-    suffix = PROMPT_SUFFIX_DARK if is_dark else PROMPT_SUFFIX
-    full_prompt = f"{CHARACTER_PREFIX}, {scene_prompt}{suffix}"
-    if any(t in full_prompt.lower() for t in _HAND_TRIGGERS):
-        full_prompt += ", delicate silver ring on her finger, (five fingers:1.5)"
-    return full_prompt
+def _write_job_file(queue_dir: Path, label: str, state: str, scene_prompt: str,
+                    seed: int | None, output_stem: str | None, force: bool) -> None:
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    job_stem = output_stem or state
+    job_file = queue_dir / f"{job_stem}.json"
+    if not force and job_file.exists():
+        return
+    data: dict = {"scene_prompt": scene_prompt}
+    if seed is not None:
+        data["seed"] = seed
+    if output_stem is not None:
+        data["output_stem"] = output_stem
+        data["state"] = state
+    job_file.write_text(json.dumps(data))
+    print(f"[ImageGen] {label} job queued: {job_stem}")
 
 
-def build_negative_prompt(state: str, ti_prefix: str) -> str:
-    """Build the negative prompt, adding dark-mode negatives when needed."""
-    is_dark = state.endswith("_dark")
-    if is_dark:
-        return f"{ti_prefix}{NEGATIVE_PROMPT}, {DARK_NEGATIVE}"
-    return f"{ti_prefix}{NEGATIVE_PROMPT}"
-
-
-def _load_textual_inversions(pipeline) -> str:
-    """Download (if needed) and load TI embeddings into a pipeline.
-
-    Returns a comma-separated prefix string of loaded token names for
-    prepending to the negative prompt, e.g. 'EasyNegative, bad-hands-5, '.
-    Failures are non-fatal — skipped embeddings are simply omitted.
-    """
-    TI_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-    loaded = []
-    for repo_id, filename, token in TI_EMBEDDINGS:
-        dest = TI_WEIGHTS_DIR / filename
-        if not dest.exists():
-            print(f"[ImageGen] Downloading TI embedding '{filename}' from {repo_id}...")
-            try:
-                from huggingface_hub import hf_hub_download
-                hf_hub_download(repo_id=repo_id, filename=filename, local_dir=str(TI_WEIGHTS_DIR))
-            except Exception as e:
-                print(f"[ImageGen] Could not download '{filename}': {e}")
-                continue
-        try:
-            pipeline.load_textual_inversion(str(dest), token=token)
-            loaded.append(token)
-            print(f"[ImageGen] TI embedding loaded: '{token}'")
-        except Exception as e:
-            print(f"[ImageGen] Could not load '{token}': {e}")
-    return ", ".join(loaded) + ", " if loaded else ""
+def _atomic_save(img, dst: Path, scene_prompt: str, tier: str) -> None:
+    info = PngInfo()
+    if scene_prompt:
+        info.add_text("scene_prompt", scene_prompt)
+        info.add_text("tier", tier)
+    tmp = dst.with_suffix('.tmp.png')
+    img.save(tmp, pnginfo=info)
+    tmp.rename(dst)
+    print(f"[ImageGen] {tier.upper()} saved: {dst.name} ({dst.stat().st_size // 1024}KB)")
 
 
 class ImageGenService:
@@ -145,8 +83,6 @@ class ImageGenService:
     _upgrade_queue: deque = deque()
     _upgrade_in_progress: set[str] = set()
     _upgrade_scheduler_started: bool = False
-    _atexit_registered: bool = False
-    _start_worker_lock: threading.Lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     #  Standard generation (SD 1.5, 512×512, fast)                       #
@@ -196,7 +132,6 @@ class ImageGenService:
 
     @classmethod
     def _evict_pipeline(cls) -> None:
-        import gc
         with cls._lock:
             if cls._pipeline is not None:
                 cls._pipeline = None
@@ -229,7 +164,7 @@ class ImageGenService:
         Moves the pipeline to CPU and clears VRAM cache on exit.
         """
         cls._cancel_eviction()
-        with cls._lock, _claim_gpu_impl(key=state, on_worker_killed=cls._start_hq_worker):
+        with cls._lock, _claim_gpu_impl(key=state, on_worker_killed=start_hq_worker):
             pipe = cls._get_pipeline()
             pipe.to(DEVICE)
             torch.cuda.empty_cache()
@@ -255,7 +190,6 @@ class ImageGenService:
                     width=512,
                     height=512,
                 ).images[0]
-                from PIL.PngImagePlugin import PngInfo
                 info = PngInfo()
                 info.add_text("scene_prompt", scene_prompt)
                 info.add_text("tier", tier)
@@ -295,19 +229,7 @@ class ImageGenService:
     @classmethod
     def _queue_hq(cls, state: str, scene_prompt: str, seed: int | None = None,
                   output_stem: str | None = None, force: bool = False):
-        HQ_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-        job_stem = output_stem if output_stem else state
-        job_file = HQ_QUEUE_DIR / f"{job_stem}.json"
-        if not force and job_file.exists():
-            return
-        data: dict = {"scene_prompt": scene_prompt}
-        if seed is not None:
-            data["seed"] = seed
-        if output_stem is not None:
-            data["output_stem"] = output_stem
-            data["state"] = state  # original state for dark-mode detection in worker
-        job_file.write_text(json.dumps(data))
-        print(f"[ImageGen] HQ job queued: {job_stem}")
+        _write_job_file(HQ_QUEUE_DIR, "HQ", state, scene_prompt, seed, output_stem, force)
 
     # ------------------------------------------------------------------ #
     #  HQ paths + save (shared with hq_gen_worker.py)                    #
@@ -319,20 +241,9 @@ class ImageGenService:
 
     @classmethod
     def _save_hq(cls, state: str, img, scene_prompt: str = ""):
-        """Resize to _FINAL_SIZE with LANCZOS and save atomically as the HQ file."""
-        from PIL import Image
-        from PIL.PngImagePlugin import PngInfo
         if img.width != _FINAL_SIZE or img.height != _FINAL_SIZE:
             img = img.resize((_FINAL_SIZE, _FINAL_SIZE), Image.LANCZOS)
-        info = PngInfo()
-        if scene_prompt:
-            info.add_text("scene_prompt", scene_prompt)
-            info.add_text("tier", "mq")
-        dst = cls._hq_path(state)
-        tmp = dst.with_suffix('.tmp.png')
-        img.save(tmp, pnginfo=info)
-        tmp.rename(dst)
-        print(f"[ImageGen] HQ saved: {dst.name} ({dst.stat().st_size // 1024}KB)")
+        _atomic_save(img, cls._hq_path(state), scene_prompt, "mq")
 
     # ------------------------------------------------------------------ #
     #  UHQ paths + save + queue                                           #
@@ -344,34 +255,12 @@ class ImageGenService:
 
     @classmethod
     def _save_uhq(cls, state: str, img, scene_prompt: str = ""):
-        """Save atomically as the UHQ file with embedded metadata."""
-        from PIL.PngImagePlugin import PngInfo
-        info = PngInfo()
-        if scene_prompt:
-            info.add_text("scene_prompt", scene_prompt)
-            info.add_text("tier", "uhq")
-        dst = cls._uhq_path(state)
-        tmp = dst.with_suffix('.tmp.png')
-        img.save(tmp, pnginfo=info)
-        tmp.rename(dst)
-        print(f"[ImageGen] UHQ saved: {dst.name} ({dst.stat().st_size // 1024}KB)")
+        _atomic_save(img, cls._uhq_path(state), scene_prompt, "uhq")
 
     @classmethod
     def _queue_uhq(cls, state: str, scene_prompt: str, seed: int | None = None,
                    output_stem: str | None = None, force: bool = False):
-        UHQ_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-        job_stem = output_stem if output_stem else state
-        job_file = UHQ_QUEUE_DIR / f"{job_stem}.json"
-        if not force and job_file.exists():
-            return
-        data: dict = {"scene_prompt": scene_prompt}
-        if seed is not None:
-            data["seed"] = seed
-        if output_stem is not None:
-            data["output_stem"] = output_stem
-            data["state"] = state  # original state for dark-mode detection in worker
-        job_file.write_text(json.dumps(data))
-        print(f"[ImageGen] UHQ job queued: {job_stem}")
+        _write_job_file(UHQ_QUEUE_DIR, "UHQ", state, scene_prompt, seed, output_stem, force)
 
     # ------------------------------------------------------------------ #
     #  GPU preemption                                                     #
@@ -381,7 +270,7 @@ class ImageGenService:
     def claim_gpu(cls):
         return _claim_gpu_impl(
             skip_if=lambda: bool(cls._in_progress),
-            on_worker_killed=cls._start_hq_worker,
+            on_worker_killed=start_hq_worker,
         )
 
     # ------------------------------------------------------------------ #
@@ -401,6 +290,18 @@ class ImageGenService:
             if meta:
                 return meta
         return None
+
+    @classmethod
+    def _read_meta_path(cls, path: Path) -> dict | None:
+        """Read scene_prompt and tier from tEXt chunks of an arbitrary PNG path."""
+        if not path.exists():
+            return None
+        try:
+            with Image.open(path) as img:
+                text = getattr(img, 'text', {})
+                return text if text.get('scene_prompt') else None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ #
     #  Experiment generation (admin one-shot)                             #
@@ -438,19 +339,6 @@ class ImageGenService:
         output_path = OUTPUT_DIR / f"{output_stem}.png"
         cls._run_fast(state, scene_prompt, effective_seed, output_path, tier="experiment_fast")
         return output_path
-
-    @classmethod
-    def _read_meta_path(cls, path: Path) -> dict | None:
-        """Read scene_prompt and tier from tEXt chunks of an arbitrary PNG path."""
-        if not path.exists():
-            return None
-        try:
-            from PIL import Image
-            with Image.open(path) as img:
-                text = getattr(img, 'text', {})
-                return text if text.get('scene_prompt') else None
-        except Exception:
-            return None
 
     # ------------------------------------------------------------------ #
     #  Requeue API                                                         #
@@ -508,22 +396,6 @@ class ImageGenService:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def _is_worker_healthy(cls) -> bool:
-        """Return True if the HQ worker has written a fresh heartbeat recently.
-
-        The worker writes env/hq_worker.heartbeat (epoch timestamp) at startup
-        and on each main loop iteration.  A stale or absent heartbeat means the
-        worker has died or not yet started.
-        """
-        if not WORKER_HEARTBEAT_PATH.exists():
-            return False
-        try:
-            age = time.time() - float(WORKER_HEARTBEAT_PATH.read_text().strip())
-            return age < _WORKER_HEARTBEAT_TTL
-        except (ValueError, OSError):
-            return False
-
-    @classmethod
     def start_upgrade_scheduler(cls):
         if cls._upgrade_scheduler_started:
             return
@@ -535,8 +407,13 @@ class ImageGenService:
         prompt_queued = 0
         legacy_queued = 0
         if OUTPUT_DIR.exists():
+            for tmp in OUTPUT_DIR.glob("*.tmp.png"):
+                tmp.unlink(missing_ok=True)
+                print(f"[ImageGen] Cleaned up stale tmp file: {tmp.name}")
             for p in OUTPUT_DIR.glob("*.png"):
                 stem = p.stem
+                if '.tmp' in stem:
+                    continue
                 if stem.endswith("_hq") or stem.endswith("_uhq") or stem.endswith("_exp"):
                     continue
                 if cls._hq_path(stem).exists() or (HQ_QUEUE_DIR / f"{stem}.json").exists():
@@ -555,78 +432,7 @@ class ImageGenService:
             print("[ImageGen] Upscale scheduler started.")
 
         threading.Thread(target=cls._upgrade_loop, daemon=True).start()
-        cls._start_hq_worker()
-
-    @classmethod
-    def _start_hq_worker(cls):
-        """Start hq_gen_worker.py as a detached subprocess. Guarded by a heartbeat file.
-
-        The threading lock prevents two rapid callers from both concluding the
-        worker is dead and each spawning a new one.
-        """
-        import subprocess
-
-        with cls._start_worker_lock:
-            pid_file = WORKER_PID_PATH
-            pid_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Healthy heartbeat → worker is alive, nothing to do
-            if cls._is_worker_healthy():
-                return
-
-            # No heartbeat yet — check whether we're still in the boot window
-            if WORKER_BOOT_PATH.exists():
-                try:
-                    boot_age = time.time() - WORKER_BOOT_PATH.stat().st_mtime
-                except OSError:
-                    boot_age = 0
-                if boot_age < 120:
-                    return  # still booting, give it time
-                print(f"[ImageGen] Worker stuck in boot ({boot_age:.0f}s) — respawning.")
-                if pid_file.exists():
-                    try:
-                        pid = int(pid_file.read_text().strip())
-                        os.kill(pid, signal.SIGTERM)
-                    except (ProcessLookupError, ValueError, OSError):
-                        pass
-                pid_file.unlink(missing_ok=True)
-                WORKER_BOOT_PATH.unlink(missing_ok=True)
-
-            WORKER_BOOT_PATH.write_text(str(time.time()))
-            worker = Path(__file__).parent / "hq_gen_worker.py"
-            proc = subprocess.Popen(
-                [sys.executable, str(worker)],
-            )
-            pid_file.write_text(str(proc.pid))
-            print(f"[ImageGen] HQ worker spawned (proc.pid={proc.pid}), waiting for boot confirmation.")
-
-            # Register the atexit handler only ONCE for the lifetime of this Flask process.
-            # We must NOT capture `proc` in the closure — doing so creates a new closure per
-            # worker restart, accumulating stale atexit handlers that send SIGTERM to recycled
-            # PIDs and delete gpu.lock while the *current* worker still holds it.
-            if not cls._atexit_registered:
-                import atexit
-                import signal as _signal
-
-                _pid_file_path = pid_file  # stable Path reference; content changes with restarts
-
-                def _shutdown_worker():
-                    # Read the *current* PID from the file — not a stale closure value.
-                    try:
-                        current_pid = int(_pid_file_path.read_text().strip())
-                        os.kill(current_pid, _signal.SIGTERM)
-                        print(f"[ImageGen] HQ worker (PID {current_pid}) terminated.")
-                    except (ProcessLookupError, OSError):
-                        pass
-                    except ValueError:
-                        pass
-                    _pid_file_path.unlink(missing_ok=True)
-                    WORKER_BOOT_PATH.unlink(missing_ok=True)
-                    WORKER_HEARTBEAT_PATH.unlink(missing_ok=True)
-                    GPU_LOCK_PATH.unlink(missing_ok=True)
-
-                atexit.register(_shutdown_worker)
-                cls._atexit_registered = True
+        start_hq_worker()
 
     @classmethod
     def _upgrade_loop(cls):
@@ -634,7 +440,7 @@ class ImageGenService:
         while True:
             now = time.time()
             if now - _last_worker_check >= 60:
-                cls._start_hq_worker()
+                start_hq_worker()
                 _last_worker_check = now
 
             if cls._upgrade_queue and not cls._in_progress:

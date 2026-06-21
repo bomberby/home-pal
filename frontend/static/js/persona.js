@@ -5,21 +5,32 @@ let personaPollTimer = null;
 let _lastImageUrl = null;
 let _lastQuote = null;
 let _lastSuggestion = null;
+let _widgetVersion = null;
 
 async function fetchPersona() {
   try {
     const response = await fetch('/persona');
     const data = await response.json();
 
+    if (data.widget_version) {
+      if (_widgetVersion && _widgetVersion !== data.widget_version) {
+        location.reload();
+        return;
+      }
+      _widgetVersion = data.widget_version;
+    }
+
     if (data.state === 'absent') {
       hidePersona();
       personaPollTimer = setTimeout(fetchPersona, 30 * 1000); // poll every 30s while away
     } else if (data.generating) {
-      showPersonaSpinner();
+      if (!_lastImageUrl) showPersonaSpinner();   // only spinner if nothing is showing
       personaPollTimer = setTimeout(fetchPersona, PERSONA_POLL_INTERVAL);
     } else {
       clearTimeout(personaPollTimer);
       showPersona(data.image_url, data.quote, data.suggestion ?? null);
+      if (data.stats) renderHud(data.stats);
+      if (data.new_unlock) showUnlockToast(data.new_unlock);
     }
   } catch (error) {
     console.error('Error fetching persona:', error);
@@ -123,6 +134,32 @@ async function speakQuote() {
     console.error('TTS error:', e);
     btn.disabled = false;
   }
+}
+
+function renderHud(stats) {
+  if (!stats) return;
+  const hud = document.getElementById('persona-hud');
+  if (!hud) return;
+  if (stats.enabled === false) {
+    hud.style.display = 'none';
+    return;
+  }
+  if (!stats.level) return;
+  hud.style.display = '';
+  document.getElementById('hud-level').textContent = `Lv.${stats.level}`;
+  const xpPct = stats.xp_needed > 0 ? Math.round((stats.xp_progress / stats.xp_needed) * 100) : 100;
+  document.getElementById('hud-xp-bar').style.width = xpPct + '%';
+  document.getElementById('hud-xp-text').textContent = `${stats.xp_progress}/${stats.xp_needed}`;
+  document.getElementById('hud-aff-bar').style.width = stats.affection + '%';
+  document.getElementById('hud-nrg-bar').style.width = stats.energy + '%';
+}
+
+function showUnlockToast(moodKey) {
+  const toast = document.getElementById('persona-unlock-toast');
+  if (!toast) return;
+  toast.textContent = `✨ new mood unlocked: ${moodKey}`;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3500);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

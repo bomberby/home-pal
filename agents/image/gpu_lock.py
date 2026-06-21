@@ -1,4 +1,4 @@
-"""GPU coordination layer shared by image_gen_service.py (Flask) and hq_gen_worker.py.
+"""GPU coordination layer shared by image/image_gen_service.py (Flask) and image/hq_gen_worker.py.
 
 Owns all GPU-access coordination:
 - gpu_lock()             — cross-process flock (portalocker); auto-released on process death.
@@ -15,6 +15,7 @@ import os
 import signal
 import sys
 import time
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -45,8 +46,6 @@ def gpu_lock():
     The lock file is never unlinked while held — unlinking an open file gives
     concurrent waiters a stale inode and silently breaks mutual exclusion.
     """
-    import traceback as _tb
-
     GPU_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     _started_at = time.monotonic()
@@ -77,7 +76,7 @@ def gpu_lock():
                     pass
 
                 if elapsed >= _GPU_LOCK_TIMEOUT:
-                    caller = "".join(_tb.format_stack()[:-1])
+                    caller = "".join(traceback.format_stack()[:-1])
                     _gpu_log(
                         f"[ImageGen][CRITICAL] gpu_lock timed out after {elapsed:.0f}s.\n"
                         f"  Holder PID: {holder_pid}\n"

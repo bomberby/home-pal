@@ -2,7 +2,7 @@ import re
 import shutil
 
 from flask import Blueprint, jsonify, render_template, request
-from agents.image_gen_service import ImageGenService, OUTPUT_DIR
+from agents.image.image_gen_service import ImageGenService, OUTPUT_DIR
 
 persona_admin_bp = Blueprint('persona_admin', __name__)
 
@@ -18,6 +18,8 @@ def persona_admin():
         all_keys = set()
         for p in OUTPUT_DIR.glob("*.png"):
             stem = p.stem
+            if '.tmp' in stem:
+                continue
             if stem.endswith("_exp"):
                 continue
             if stem.endswith("_uhq"):
@@ -94,6 +96,170 @@ def clear_memories():
     from agents.memory_service import MemoryService
     MemoryService.clear()
     return jsonify({"ok": True})
+
+
+# ------------------------------------------------------------------ #
+#  Wish management                                                     #
+# ------------------------------------------------------------------ #
+
+@persona_admin_bp.route('/persona/wishes', methods=['GET'])
+def get_wishes():
+    from agents.wish_service import WishService
+    return jsonify(WishService.get_all())
+
+
+@persona_admin_bp.route('/persona/wishes/generate', methods=['POST'])
+def generate_wishes():
+    from agents.persona.agent import PersonaAgent
+    from agents.wish_service import WishService
+
+    wishes = PersonaAgent.generate_wishes(count=5)
+    if not wishes:
+        return jsonify({'error': 'Generation failed — Ollama may be busy'}), 503
+
+    state_context = PersonaAgent.get_current_state().get('state')
+    for w in wishes:
+        WishService.add(w['content'], state_context=state_context, theme=w.get('theme'))
+
+    return jsonify({'ok': True, 'wishes': [w['content'] for w in wishes]})
+
+
+@persona_admin_bp.route('/persona/wishes/<int:index>/answer', methods=['POST'])
+def answer_wish(index):
+    from agents.wish_service import WishService
+    from agents.memory_service import MemoryService
+    from agents.persona.agent import PersonaAgent
+
+    body = request.get_json(silent=True) or {}
+    answer = body.get('answer', '').strip()
+    if not answer:
+        return jsonify({'error': 'answer required'}), 400
+
+    wishes = WishService.get_all()
+    if index < 1 or index > len(wishes):
+        return jsonify({'error': 'Wish not found'}), 404
+
+    memory = PersonaAgent.resolve_wish(wishes[index - 1]['content'], answer)
+    if not memory:
+        return jsonify({'error': 'Could not generate memory — Ollama may be busy'}), 503
+
+    WishService.mark_resolved(index, answer, memory)
+    MemoryService.add(memory, source='wish', subject='user')
+    try:
+        from agents.stats_service import on_wish_answered
+        on_wish_answered()
+    except Exception as e:
+        print(f'[persona_admin] stats error: {e}')
+    return jsonify({'ok': True, 'memory': memory})
+
+
+@persona_admin_bp.route('/persona/wishes/<int:index>/cement', methods=['POST'])
+def cement_wish(index):
+    from agents.wish_service import WishService
+    from agents.memory_service import MemoryService
+    wishes = WishService.get_all()
+    if index < 1 or index > len(wishes):
+        return jsonify({'error': f'No wish at index {index}'}), 404
+    WishService.mark_cemented(index)
+    MemoryService.add(wishes[index - 1]['content'], source='persona', subject='persona')
+    return jsonify({'ok': True})
+
+
+@persona_admin_bp.route('/persona/wishes/<int:index>', methods=['DELETE'])
+def delete_wish(index):
+    from agents.wish_service import WishService
+    try:
+        WishService.remove_at(index)
+        return jsonify({'ok': True})
+    except IndexError as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@persona_admin_bp.route('/persona/wishes', methods=['DELETE'])
+def clear_wishes():
+    from agents.wish_service import WishService
+    WishService.clear()
+    return jsonify({'ok': True})
+
+
+# ------------------------------------------------------------------ #
+#  Stats (gamification)                                               #
+# ------------------------------------------------------------------ #
+
+@persona_admin_bp.route('/persona/stats', methods=['GET'])
+def get_stats():
+    from agents.stats_service import get as stats_get
+    return jsonify(stats_get())
+
+
+@persona_admin_bp.route('/persona/stats/toggle', methods=['POST'])
+def toggle_stats():
+    from agents.stats_service import toggle_enabled, get as stats_get
+    new_state = toggle_enabled()
+    return jsonify({'ok': True, 'enabled': new_state, 'stats': stats_get()})
+
+
+@persona_admin_bp.route('/persona/stats/grant', methods=['POST'])
+def grant_stats():
+    from agents.stats_service import add_xp, add_affection
+    body = request.get_json(silent=True) or {}
+    if 'xp' in body:
+        try:
+            add_xp(int(body['xp']), 'admin_grant')
+        except (ValueError, TypeError):
+            return jsonify({'error': 'xp must be an integer'}), 400
+    if 'affection' in body:
+        try:
+            add_affection(int(body['affection']))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'affection must be an integer'}), 400
+    from agents.stats_service import get as stats_get
+    return jsonify({'ok': True, 'stats': stats_get()})
+
+
+@persona_admin_bp.route('/persona/stats/reset', methods=['POST'])
+def reset_stats():
+    from models import PersonaStats
+    PersonaStats.reset()
+    from agents.stats_service import get as stats_get, _CUSTOM_MOODS_FILE
+    try:
+        _CUSTOM_MOODS_FILE.unlink(missing_ok=True)
+    except Exception as e:
+        print(f'[persona_admin] clear custom moods error: {e}')
+    return jsonify({'ok': True, 'stats': stats_get()})
+
+
+@persona_admin_bp.route('/persona/stats/generate-mood', methods=['POST'])
+def trigger_generate_mood():
+    import threading
+    from agents.stats_service import get as stats_get, _generate_level_up_mood, _recent_events
+    s = stats_get()
+    threading.Thread(
+        target=_generate_level_up_mood,
+        args=(s.get('level', 1), list(_recent_events)),
+        daemon=True,
+    ).start()
+    return jsonify({'ok': True, 'message': 'Mood generation started in background'})
+
+
+@persona_admin_bp.route('/persona/stats/clear-custom-moods', methods=['POST'])
+def clear_custom_moods():
+    from agents.stats_service import _CUSTOM_MOODS_FILE, get as stats_get
+    from models import PersonaStats
+    import json
+    try:
+        _CUSTOM_MOODS_FILE.unlink(missing_ok=True)
+        # Strip custom mood keys from unlocked_moods (keep only base+locked moods)
+        from agents.stats_service import DEFAULT_UNLOCKED, _UNLOCK_THRESHOLDS
+        base_keys = set(DEFAULT_UNLOCKED) | {k for k, _ in _UNLOCK_THRESHOLDS}
+        row = PersonaStats.singleton()
+        moods = json.loads(row.unlocked_moods) if row.unlocked_moods else list(DEFAULT_UNLOCKED)
+        row.unlocked_moods = json.dumps([m for m in moods if m in base_keys])
+        row.save()
+    except Exception as e:
+        print(f'[persona_admin] clear_custom_moods error: {e}')
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True, 'stats': stats_get()})
 
 
 # ------------------------------------------------------------------ #

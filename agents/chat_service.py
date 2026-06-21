@@ -52,6 +52,12 @@ class ChatService:
         exchange = f"User: {query}\nPersona: {reply}"
         threading.Thread(target=cls._extract_memory, args=(exchange,), daemon=True).start()
 
+        try:
+            from agents.stats_service import on_chat
+            on_chat(factual=bool(factual), mood=mood)
+        except Exception as e:
+            print(f'[ChatService] stats error: {e}')
+
         return {'reply': reply, 'mood': mood}
 
     @staticmethod
