@@ -3,7 +3,7 @@ import config
 from models import database
 from routes import init_routes
 from cache import cache
-import agents.llm.ollama_service as ollama_service
+import agents.llm.llm_router as llm_router
 from smart_home.home_context_service import HomeContextService
 
 def create_app():
@@ -35,7 +35,7 @@ import services.log_config as log_config
 log_config.configure()
 
 if __name__ == '__main__':
-    ollama_service.start()
+    llm_router.start_backend()
     HomeContextService.start()
     import os
     from services.telegram_service import TelegramService

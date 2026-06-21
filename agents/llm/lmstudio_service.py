@@ -41,10 +41,11 @@ def _split_thinking(raw: str) -> tuple[str | None, str, bool]:
     return thinking, answer, True
 
 
-def collect_thinking(prompt: str, think_budget_chars: int = 4000, timeout: int = 60, *,
-                     system: str | None = None, skip_if_busy: bool = False) -> str | None:
+def _collect_thinking(prompt: str, think_budget_chars: int = 4000, timeout: int = 60, *,
+                      system: str | None = None, skip_if_busy: bool = False) -> str | None:
     """Stream a think=True call, collect thinking up to budget, then close.
 
+    Called by llm_router.collect_thinking() — do not call directly.
     Returns the raw thinking text, or None on failure/timeout.
     """
     acquired = _call_lock.acquire(blocking=not skip_if_busy)
@@ -149,7 +150,7 @@ def collect_thinking(prompt: str, think_budget_chars: int = 4000, timeout: int =
         _call_lock.release()
 
 
-def call_lmstudio(prompt: str, timeout: int = 10, *, system: str | None = None,
+def _call(prompt: str, timeout: int = 10, *, system: str | None = None,
                   skip_if_busy: bool = False, think: bool = False) -> str | None:
     acquired = _call_lock.acquire(blocking=not skip_if_busy)
     if not acquired:

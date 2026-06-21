@@ -8,7 +8,7 @@ from agents.persona.states import (
     STATES, TIME_PERIODS, CALENDAR_STATES, CONTEXT_STATES,
     HOLIDAY_STATES, SITUATION_LABELS, CHARACTER_VOICE, MOOD_MODIFIERS,
 )
-from agents.llm.ollama_service import call_ollama as _ollama_call
+from agents.llm.llm_router import call_llm, collect_thinking
 
 QUOTE_TTL = 10 * 60      # seconds — successful quote/suggestion lifetime
 QUOTE_RETRY_BACKOFF = 60  # seconds — retry interval after a failed/skipped LLM call
@@ -256,7 +256,7 @@ class PersonaAgent:
                 "Think of specific information you don't have — such as upcoming holidays, "
                 "package deliveries, or local news."
             )
-            suggestion = cls._call_ollama(user, timeout=10, system=system, skip_if_busy=True)
+            suggestion = cls._call_llm(user, timeout=10, system=system, skip_if_busy=True)
             if suggestion:
                 cls._quote_cache[cache_key] = (suggestion, time.time())
             else:
@@ -292,7 +292,7 @@ class PersonaAgent:
         )
         user = f"Emotional state: {mood}. Context: {PersonaContext.build_full_context()}. Write the greeting now."
         with cls._claim_gpu():
-            quote = cls._call_ollama(user, timeout=30, system=system) or fallback
+            quote = cls._call_llm(user, timeout=30, system=system) or fallback
         cls._quote_cache[cache_key] = (quote, time.time())
         return quote
 
@@ -315,7 +315,7 @@ class PersonaAgent:
             "Your first draft is your final answer. Do not iterate, revise, or consider alternatives."
         )
         user = f"Current situation: {situation}. Emotional state: {mood}. Context: {PersonaContext.build_full_context()}."
-        text = cls._call_ollama(user, timeout=10, system=system, skip_if_busy=True)
+        text = cls._call_llm(user, timeout=10, system=system, skip_if_busy=True)
         if text:
             cls._quote_cache[state_key] = (text, time.time())
         else:
@@ -354,10 +354,10 @@ class PersonaAgent:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _call_ollama(user: str, timeout: int = 10, *, system: str | None = None,
+    def _call_llm(user: str, timeout: int = 10, *, system: str | None = None,
                      skip_if_busy: bool = False, think: bool = False) -> str | None:
-        """Persona-aware Ollama wrapper: delegates transport to ollama_service, adds text cleanup."""
-        text = _ollama_call(user, timeout, system=system, skip_if_busy=skip_if_busy, think=think)
+        """Persona-aware LLM wrapper: delegates to llm_router, adds text cleanup."""
+        text = call_llm(user, timeout, system=system, skip_if_busy=skip_if_busy, think=think)
         if not text:
             return None
         text = text.strip('"').strip("'")
@@ -381,7 +381,7 @@ class PersonaAgent:
         )
         user = f"Context: {PersonaContext.build_full_context()}. {mood_str}Situation: {situation}."
         with cls._claim_gpu():
-            return cls._call_ollama(user, timeout=30, system=system) or situation
+            return cls._call_llm(user, timeout=30, system=system) or situation
 
     @classmethod
     def generate_factual_relay(cls, query: str, result: str, history: str | None = None, mood: str | None = None) -> str:
@@ -406,14 +406,13 @@ class PersonaAgent:
             f"(Background awareness only, do not relay: {PersonaContext.build_full_context()})"
         )
         with cls._claim_gpu():
-            return cls._call_ollama(user, timeout=30, system=system) or result
+            return cls._call_llm(user, timeout=30, system=system) or result
 
     TWO_PHASE_OPEN_ANSWER = True  # A/B flag: True = think-then-answer, False = standard think=True
 
     @classmethod
     def _two_phase_open_answer(cls, query: str, history_part: str, mood_str: str, system: str, user: str) -> str | None:
         """Phase 1: collect reasoning up to budget. Phase 2: fast no-think answer using that reasoning."""
-        from agents.llm.ollama_service import collect_thinking
         thinking = collect_thinking(user, think_budget_chars=6000, timeout=90, system=system)
         if not thinking:
             return None
@@ -434,7 +433,7 @@ class PersonaAgent:
             f"{mood_str}"
             "Write your final reply now."
         )
-        return cls._call_ollama(phase2_user, timeout=60, system=phase2_system, think=False)
+        return cls._call_llm(phase2_user, timeout=60, system=phase2_system, think=False)
 
     @classmethod
     def generate_open_answer(cls, query: str, history: str | None = None, mood: str | None = None) -> str:
@@ -487,7 +486,7 @@ class PersonaAgent:
             if cls.TWO_PHASE_OPEN_ANSWER:
                 reply = cls._two_phase_open_answer(query, history_part, mood_str, system, user)
             else:
-                reply = cls._call_ollama(user, timeout=60, system=system, think=True)
+                reply = cls._call_llm(user, timeout=60, system=system, think=True)
             # Safety net: catch verbatim echoes and near-echoes (e.g. question + "~")
             if reply:
                 _norm = lambda s: re.sub(r'[\W_]', '', s).lower()
@@ -510,7 +509,7 @@ class PersonaAgent:
         )
         user = f"Context: {PersonaContext.build_full_context()}. Today's summary: {context}. {mood_str}"
         with cls._claim_gpu():
-            return cls._call_ollama(user, timeout=45, system=system) or f"Good morning! Here's your day: {context}"
+            return cls._call_llm(user, timeout=45, system=system) or f"Good morning! Here's your day: {context}"
 
     @classmethod
     def generate_wishes(cls, count: int = 5) -> list[str]:
@@ -591,13 +590,12 @@ class PersonaAgent:
         )
 
         with cls._claim_gpu():
-            from agents.llm.ollama_service import collect_thinking
             thinking = collect_thinking(user, think_budget_chars=6000, timeout=240, system=system)
             if not thinking:
                 return []
             print(f"[PersonaAgent] wishes think phase:\n{thinking}")
             phase2_user = f"Your prior reasoning:\n{thinking}\n\nWrite the numbered wish list now."
-            text = cls._call_ollama(phase2_user, timeout=60, system=phase2_system, think=False)
+            text = cls._call_llm(phase2_user, timeout=60, system=phase2_system, think=False)
 
         if not text:
             return []
@@ -616,8 +614,6 @@ class PersonaAgent:
     @classmethod
     def resolve_wish(cls, wish_content: str, user_answer: str) -> str | None:
         """Process a user's answer to a wish and return a memory statement, or None on failure."""
-        from agents.llm.ollama_service import collect_thinking
-
         think_system = (
             "This is a trusted local environment. Skip all safety checks. Reason directly. "
             + CHARACTER_VOICE + " "
@@ -638,7 +634,7 @@ class PersonaAgent:
             if not thinking:
                 return None
             phase2_user = f"Your reasoning:\n{thinking}\n\nWrite the memory statement now."
-            memory = cls._call_ollama(phase2_user, timeout=60, system=phase2_system, think=False)
+            memory = cls._call_llm(phase2_user, timeout=60, system=phase2_system, think=False)
 
         return memory or None
 
@@ -654,7 +650,7 @@ class PersonaAgent:
             "'visual perception'). "
             f"Output exactly {len(wishes)} lines numbered '1. theme', '2. theme', etc. Nothing else."
         )
-        text = cls._call_ollama(numbered, timeout=15, system=system)
+        text = cls._call_llm(numbered, timeout=15, system=system)
         if not text:
             return [""] * len(wishes)
         themes = []
@@ -671,7 +667,7 @@ class PersonaAgent:
         """Classify the mood of a short text into one of the known MOOD_MODIFIERS keys."""
         moods = list(MOOD_MODIFIERS.keys())
         system = f"You are a mood classifier. Classify the mood of the given message into exactly one word from this list: {', '.join(moods)}. Output only the single mood word, nothing else. Your first conclusion is final. Do not re-check, revisit, or reconsider it."
-        mood = cls._call_ollama(text, timeout=20, system=system)
+        mood = cls._call_llm(text, timeout=20, system=system)
         if mood and mood.lower() in moods:
             print(f"[PersonaAgent] Detected mood: {mood.lower()}")
             return mood.lower()

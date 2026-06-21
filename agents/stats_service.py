@@ -11,6 +11,8 @@ import threading
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+from agents.llm.llm_router import call_llm, collect_thinking
+
 _CUSTOM_MOODS_FILE = Path('env/custom_moods.json')
 
 # Rolling buffer of recent XP event reasons (last 20); used for level-up mood generation
@@ -65,7 +67,6 @@ def get_custom_mood_modifier(key: str) -> str | None:
 def _generate_level_up_mood(new_level: int, events: list[str]) -> None:
     """Background thread: ask Ollama to invent a new mood; store it and surface as unlock."""
     try:
-        from agents.llm.ollama_service import call_ollama
         from agents.memory_service import MemoryService
 
         existing_custom = [m['key'] for m in _load_custom_moods()]
@@ -129,7 +130,6 @@ def _generate_level_up_mood(new_level: int, events: list[str]) -> None:
         # Two-phase: bounded thinking then fast think=False answer.
         # Single think=True call starves on tokens — model finishes thinking with nothing
         # left for the answer, call_lmstudio returns None with no useful log.
-        from agents.llm.ollama_service import collect_thinking
         print(f'[Stats] level-up mood: starting think phase (budget=6000, timeout=120s)')
         thinking = collect_thinking(user, think_budget_chars=6000, timeout=120, system=system)
         print(f'[Stats] level-up mood: think phase done — {len(thinking) if thinking else 0} chars')
@@ -151,7 +151,7 @@ def _generate_level_up_mood(new_level: int, events: list[str]) -> None:
             phase2_user = user + '\n\nWrite the JSON now. Begin your response with {"key":'
 
         print(f'[Stats] level-up mood: starting answer phase (think=False, timeout=45s)')
-        raw = call_ollama(phase2_user, timeout=45, system=phase2_system, think=False)
+        raw = call_llm(phase2_user, timeout=45, system=phase2_system, think=False)
         print(f'[Stats] level-up mood: answer phase returned {len(raw) if raw else 0} chars: {raw!r}')
         if not raw:
             print('[Stats] level-up mood: LLM returned nothing — check LMStudio/Ollama logs above')

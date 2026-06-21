@@ -91,11 +91,6 @@ _DUMMY_TOOLS = [
 
 
 def start():
-    import config
-    if config.Config.LLM_BACKEND == 'lmstudio':
-        from agents import lmstudio_service
-        lmstudio_service.check_ready()
-        return
     _start_server()
     if _wait_for_ready():
         threading.Thread(target=_ensure_model, daemon=True).start()
@@ -156,24 +151,18 @@ def _ensure_model():
         print(f"Ollama: model check/pull failed: {e}")
 
 
-def call_ollama(prompt: str, timeout: int = 10, *, system: str | None = None,
-                skip_if_busy: bool = False, think: bool = False,
-                use_tools: bool = False) -> str | None:
+def _call(prompt: str, timeout: int = 10, *, system: str | None = None,
+          skip_if_busy: bool = False, think: bool = False,
+          use_tools: bool = False) -> str | None:
     """POST to Ollama /api/chat and return the response text, or None on failure.
 
-    skip_if_busy: if True and another call is already in flight, return None immediately
-    rather than queuing. Use for low-priority callers that have a fallback (quote, suggestion,
-    mood classify). High-priority callers (notifications, Telegram replies) leave it False.
+    Called by llm_router.call_llm() — do not call directly.
     use_tools: pass a dummy tool definition to shift Qwen3 into a faster, more focused
     reasoning mode. If the model calls the tool, the text argument is used as the answer.
     """
-    import config
-    if config.Config.LLM_BACKEND == 'lmstudio':
-        from agents import lmstudio_service
-        return lmstudio_service.call_lmstudio(prompt, timeout, system=system, skip_if_busy=skip_if_busy, think=think)
     acquired = _call_lock.acquire(blocking=not skip_if_busy)
     if not acquired:
-        print(f"[Ollama] call: skipped (busy) think={think} prompt={prompt[:60]!r}")
+        print(f"[Ollama] _call: skipped (busy) think={think} prompt={prompt[:60]!r}")
         return None
     try:
         print(f"[Ollama] call → think={think} tools={use_tools} timeout={timeout}s prompt={prompt[:80]!r}")
@@ -242,21 +231,16 @@ def call_ollama(prompt: str, timeout: int = 10, *, system: str | None = None,
         _call_lock.release()
 
 
-def collect_thinking(prompt: str, think_budget_chars: int = 4000, timeout: int = 60, *,
-                     system: str | None = None, skip_if_busy: bool = False) -> str | None:
+def _collect_thinking(prompt: str, think_budget_chars: int = 4000, timeout: int = 60, *,
+                      system: str | None = None, skip_if_busy: bool = False) -> str | None:
     """Phase-1 of a two-phase call: stream think=True, collect thinking up to budget, then stop.
 
-    Returns the raw thinking text (not the answer). The caller uses this as context for a
-    fast follow-up call with think=False.
+    Called by llm_router.collect_thinking() — do not call directly.
+    Returns the raw thinking text (not the answer).
     """
-    import config
-    if config.Config.LLM_BACKEND == 'lmstudio':
-        from agents import lmstudio_service
-        return lmstudio_service.collect_thinking(prompt, think_budget_chars, timeout,
-                                                 system=system, skip_if_busy=skip_if_busy)
     acquired = _call_lock.acquire(blocking=not skip_if_busy)
     if not acquired:
-        print(f"[Ollama] collect_thinking: skipped (busy)")
+        print(f"[Ollama] _collect_thinking: skipped (busy)")
         return None
     try:
         print(f"[Ollama] collect_thinking → budget={think_budget_chars} timeout={timeout}s prompt={prompt[:80]!r}")

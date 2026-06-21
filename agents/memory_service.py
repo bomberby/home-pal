@@ -3,6 +3,8 @@ import os
 import re
 from datetime import datetime, timedelta
 
+from agents.llm.llm_router import call_llm
+
 
 class MemoryService:
     MEMORY_PATH = os.path.join('env', 'persona_memory.json')
@@ -168,7 +170,6 @@ class MemoryService:
     @classmethod
     def extract_from_exchange(cls, exchange: str) -> None:
         """Ask Ollama if the exchange reveals a user fact (permanent or transient); store it if so."""
-        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)
@@ -218,7 +219,7 @@ class MemoryService:
             "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known:\n{existing_text}\n\nExchange:\n{exchange}"
-        result = call_ollama(user, timeout=15, system=system)
+        result = call_llm(user, timeout=15, system=system)
         if not result:
             return
         content, ttl_hours = cls._parse_llm_memory(result)
@@ -228,7 +229,6 @@ class MemoryService:
     @classmethod
     def extract_persona_from_exchange(cls, exchange: str) -> None:
         """Ask Ollama if the Persona's reply reveals an opinion, commitment, or expressed trait worth storing."""
-        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing if m.get('subject') == 'persona')
@@ -263,7 +263,7 @@ class MemoryService:
             "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known about me:\n{existing_text}\n\nExchange:\n{exchange}"
-        result = call_ollama(user, timeout=15, system=system)
+        result = call_llm(user, timeout=15, system=system)
         if not result:
             return
         content, ttl_hours = cls._parse_llm_memory(result)
@@ -277,7 +277,6 @@ class MemoryService:
         Observed memories expire after OBSERVE_TTL_HOURS — they must re-confirm before
         being treated as established habits. Passes existing memories for semantic dedup.
         """
-        from agents.llm.ollama_service import call_ollama
         existing = cls.load()
         existing_text = (
             "\n".join(f"- {m['content']}" for m in existing)
@@ -302,7 +301,7 @@ class MemoryService:
             "Your first conclusion is final. Do not re-check, revisit, or reconsider it."
         )
         user = f"Already known:\n{existing_text}\n\nNew observation: {situation}"
-        result = call_ollama(user, timeout=15, system=system)
+        result = call_llm(user, timeout=15, system=system)
         if not result:
             return
         content, _ = cls._parse_llm_memory(result)
